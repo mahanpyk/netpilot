@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <Bundle Name="NetPilot Setup" Manufacturer="NetPilot" Version="1.0.1.0"
+          UpgradeCode="A7B73357-3EA2-4718-8145-3C01FDF7FBCC">
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl="" SuppressOptionsUI="no" />
+    </BootstrapperApplication>
+    <Chain>
+      <MsiPackage SourceFile="$(var.NetPilotMsi)" Vital="yes" Visible="no" />
+    </Chain>
+  </Bundle>
+</Wix>

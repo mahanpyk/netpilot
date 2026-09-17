@@ -76,7 +76,7 @@ class FileAppRulesRepository implements AppRulesRepository {
     final file = await _file();
     await file.writeAsString(
       const JsonEncoder.withIndent('  ').convert({
-        'version': 1,
+        'version': 2,
         'masterEnabled': state.masterEnabled,
         'rules': state.rules.map((rule) => rule.toJson()).toList(),
       }),

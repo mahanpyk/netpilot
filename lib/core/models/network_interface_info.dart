@@ -13,12 +13,16 @@ class NetworkInterfaceInfo {
     required this.dnsServers,
     required this.isDefaultRoute,
     required this.isActive,
+    String? nativeId,
     this.gateway,
-  });
+  }) : nativeId = nativeId ?? id;
 
   final String id;
   final String name;
   final String interfaceName;
+
+  /// Stable platform identifier: BSD name on macOS, adapter LUID on Windows.
+  final String nativeId;
   final NetworkInterfaceKind kind;
   final List<String> ipv4Addresses;
   final String? gateway;
@@ -29,9 +33,14 @@ class NetworkInterfaceInfo {
   factory NetworkInterfaceInfo.fromMap(Map<Object?, Object?> map) {
     final kindRaw = (map['kind'] as String?) ?? 'other';
     return NetworkInterfaceInfo(
-      id: (map['id'] as String?) ?? (map['interfaceName'] as String?) ?? '',
+      id:
+          (map['id'] as String?) ??
+          (map['nativeId'] as String?) ??
+          (map['interfaceName'] as String?) ??
+          '',
       name: (map['name'] as String?) ?? '',
       interfaceName: (map['interfaceName'] as String?) ?? '',
+      nativeId: (map['nativeId'] as String?) ?? (map['id'] as String?),
       kind: switch (kindRaw) {
         'wifi' => NetworkInterfaceKind.wifi,
         'ethernet' => NetworkInterfaceKind.ethernet,
@@ -46,16 +55,17 @@ class NetworkInterfaceInfo {
   }
 
   Map<String, Object?> toMap() => {
-        'id': id,
-        'name': name,
-        'interfaceName': interfaceName,
-        'kind': kind.name,
-        'ipv4Addresses': ipv4Addresses,
-        'gateway': gateway,
-        'dnsServers': dnsServers,
-        'isDefaultRoute': isDefaultRoute,
-        'isActive': isActive,
-      };
+    'id': id,
+    'name': name,
+    'interfaceName': interfaceName,
+    'nativeId': nativeId,
+    'kind': kind.name,
+    'ipv4Addresses': ipv4Addresses,
+    'gateway': gateway,
+    'dnsServers': dnsServers,
+    'isDefaultRoute': isDefaultRoute,
+    'isActive': isActive,
+  };
 
   static List<String> _stringList(Object? value) {
     if (value is! List) return const [];

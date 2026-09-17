@@ -1,5 +1,5 @@
 name: netpilot_desktop
-description: Split routing for dual Wi-Fi + LAN networks on macOS.
+description: Split routing for dual-network macOS and Windows desktops.
 publish_to: 'none'
 version: 1.0.1+2
 

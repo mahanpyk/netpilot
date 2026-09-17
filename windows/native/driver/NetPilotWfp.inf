@@ -1,0 +1,41 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=NetService
+ClassGuid={4D36E974-E325-11CE-BFC1-08002BE10318}
+Provider=%ProviderName%
+DriverVer=09/17/2026,1.0.0.0
+CatalogFile=NetPilotWfp.cat
+PnpLockdown=1
+
+[DestinationDirs]
+DriverCopyFiles=13
+
+[DefaultInstall.NTamd64]
+CopyFiles=DriverCopyFiles
+
+[DefaultInstall.NTamd64.Services]
+AddService=NetPilotWfp,,NetPilotWfp_Service
+
+[DriverCopyFiles]
+NetPilotWfp.sys
+
+[NetPilotWfp_Service]
+DisplayName=%ServiceName%
+Description=%ServiceDescription%
+ServiceType=1
+StartType=2
+ErrorControl=1
+ServiceBinary=%13%\NetPilotWfp.sys
+Dependencies=BFE
+
+[SourceDisksNames]
+1=%DiskName%,,,
+
+[SourceDisksFiles]
+NetPilotWfp.sys=1
+
+[Strings]
+ProviderName="NetPilot"
+ServiceName="NetPilot WFP Callout Driver"
+ServiceDescription="Redirects explicitly selected Win32 application flows to NetPilot Service."
+DiskName="NetPilot installation media"

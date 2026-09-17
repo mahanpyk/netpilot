@@ -1,0 +1,3 @@
+add_executable(NetPilotProtocolTests protocol_tests.cpp ../common/netpilot_protocol.cpp)
+apply_standard_settings(NetPilotProtocolTests)
+add_test(NAME NetPilotProtocolTests COMMAND NetPilotProtocolTests)

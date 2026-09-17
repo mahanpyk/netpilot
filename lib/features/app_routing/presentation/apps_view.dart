@@ -56,8 +56,11 @@ class AppsView extends StatelessWidget {
                               style: Theme.of(context).textTheme.headlineMedium,
                             ),
                             const SizedBox(height: 4),
-                            const Text(
-                              'Pin signed apps and their bundled helpers to a physical network.',
+                            Text(
+                              controller.hostPlatform ==
+                                      AppRoutingHostPlatform.windows
+                                  ? 'Pin Win32 applications and reviewed helper EXEs to a physical network.'
+                                  : 'Pin signed apps and their bundled helpers to a physical network.',
                             ),
                           ],
                         ),
@@ -135,7 +138,7 @@ class AppsView extends StatelessWidget {
                         onPressed:
                             controller.busy ||
                                 !controller.hasPendingChanges ||
-                                !controller.status.extensionReady
+                                !controller.status.routingEngineReady
                             ? null
                             : controller.applyAndRestart,
                         icon: controller.busy
@@ -184,7 +187,8 @@ class _ExtensionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = controller.status;
-    final ready = status.extensionReady;
+    final windows = controller.hostPlatform == AppRoutingHostPlatform.windows;
+    final ready = status.routingEngineReady;
     final color = ready
         ? Theme.of(context).colorScheme.primary
         : Theme.of(context).colorScheme.tertiary;
@@ -203,7 +207,11 @@ class _ExtensionCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    ready
+                    windows
+                        ? ready
+                              ? 'Windows Routing Engine ready'
+                              : 'Windows Routing Engine setup required'
+                        : ready
                         ? 'System Extension installed'
                         : 'System Extension setup required',
                     style: Theme.of(context).textTheme.titleMedium,
@@ -220,7 +228,7 @@ class _ExtensionCard extends StatelessWidget {
             if (!ready)
               FilledButton(
                 onPressed: controller.busy ? null : controller.installExtension,
-                child: const Text('Install & Approve'),
+                child: Text(windows ? 'Repair setup' : 'Install & Approve'),
               )
             else
               IconButton(
@@ -269,8 +277,8 @@ class _AppRuleCard extends StatelessWidget {
         title: Text(rule.displayName),
         subtitle: Text(
           '$interfaceLabel · ${rule.failurePolicy.name}\n'
-          '${rule.helperSigningIdentifiers.length} bundled helpers$runtimeSummary · '
-          '${runtimeError ?? rule.signingIdentifier}',
+          '${rule.platform == AppRoutingHostPlatform.windows ? rule.helperExecutables.where((item) => item.enabled).length : rule.helperSigningIdentifiers.length} helpers$runtimeSummary · '
+          '${runtimeError ?? (rule.platform == AppRoutingHostPlatform.windows ? rule.executablePath : rule.signingIdentifier)}',
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
@@ -316,15 +324,21 @@ class _AppRuleDialogState extends State<_AppRuleDialog> {
       widget.rule?.interfaceId ??
       (widget.controller.physicalInterfaces.isEmpty
           ? null
-          : widget.controller.physicalInterfaces.first.interfaceName);
+          : widget.controller.physicalInterfaces.first.nativeId);
   late AppRoutingFailurePolicy policy =
       widget.rule?.failurePolicy ?? AppRoutingFailurePolicy.block;
+  late List<AppExecutableIdentity> helpers = List.of(
+    widget.rule?.helperExecutables ?? widget.app?.helperExecutables ?? const [],
+  );
 
   @override
   Widget build(BuildContext context) {
     final interfaces = widget.controller.physicalInterfaces;
     final knownInterface = interfaces.any(
-      (item) => item.interfaceName == interfaceId || item.id == interfaceId,
+      (item) =>
+          item.nativeId == interfaceId ||
+          item.interfaceName == interfaceId ||
+          item.id == interfaceId,
     );
     final name =
         widget.rule?.displayName ?? widget.app?.displayName ?? 'Application';
@@ -349,7 +363,7 @@ class _AppRuleDialogState extends State<_AppRuleDialog> {
                   ),
                 for (final item in interfaces)
                   DropdownMenuItem(
-                    value: item.interfaceName,
+                    value: item.nativeId,
                     child: Text('${item.name} (${item.interfaceName})'),
                   ),
               ],
@@ -377,9 +391,48 @@ class _AppRuleDialogState extends State<_AppRuleDialog> {
             Text(
               policy == AppRoutingFailurePolicy.block
                   ? 'Close matching flows when this interface is unavailable.'
-                  : 'Use the normal macOS route when this interface is unavailable.',
+                  : 'Use the normal system route when this interface is unavailable.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
+            if (widget.controller.hostPlatform ==
+                    AppRoutingHostPlatform.windows &&
+                helpers.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Discovered helper EXEs',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 4),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 180),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: helpers.length,
+                  itemBuilder: (context, index) {
+                    final helper = helpers[index];
+                    return CheckboxListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      value: helper.enabled,
+                      title: Text(
+                        helper.displayName ?? helper.path.split('\\').last,
+                      ),
+                      subtitle: Text(
+                        helper.isSigned
+                            ? (helper.publisher ?? 'Signed executable')
+                            : 'Unsigned · path-only identity',
+                      ),
+                      onChanged: (value) => setState(
+                        () => helpers[index] = helper.copyWith(
+                          enabled: value ?? false,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+            finalPathOnlyWarning(widget.app, widget.rule, context),
           ],
         ),
       ),
@@ -397,12 +450,14 @@ class _AppRuleDialogState extends State<_AppRuleDialog> {
                       rule: widget.rule!,
                       interfaceId: interfaceId!,
                       failurePolicy: policy,
+                      helperExecutables: helpers,
                     );
                   } else {
                     await widget.controller.upsertRule(
                       app: widget.app!,
                       interfaceId: interfaceId!,
                       failurePolicy: policy,
+                      helperExecutables: helpers,
                     );
                   }
                   if (context.mounted) Navigator.pop(context);
@@ -412,6 +467,24 @@ class _AppRuleDialogState extends State<_AppRuleDialog> {
       ],
     );
   }
+}
+
+Widget finalPathOnlyWarning(
+  AppDescriptor? app,
+  AppRoutingRule? rule,
+  BuildContext context,
+) {
+  final windows =
+      (app?.platform ?? rule?.platform) == AppRoutingHostPlatform.windows;
+  final signed = app?.isSigned ?? rule?.isSigned ?? true;
+  if (!windows || signed) return const SizedBox.shrink();
+  return Padding(
+    padding: const EdgeInsets.only(top: 12),
+    child: Text(
+      'This EXE is unsigned. NetPilot will match its canonical path; replacing the file at that path keeps the rule active.',
+      style: TextStyle(color: Theme.of(context).colorScheme.tertiary),
+    ),
+  );
 }
 
 class _AppIcon extends StatelessWidget {

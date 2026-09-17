@@ -2,8 +2,7 @@
 
 Split routing for developers on dual networks (Wi‑Fi for internet + LAN for intranet).
 
-**Platform (v1):** macOS 14+  
-**Windows:** deferred  
+**Platforms:** macOS 14+; Windows 10 22H2/11 x64 development implementation
 **Docs for agents:** [`HANDOFF.md`](HANDOFF.md) · [`AGENTS.md`](AGENTS.md)
 
 ## What it does
@@ -12,12 +11,16 @@ Split routing for developers on dual networks (Wi‑Fi for internet + LAN for in
 2. Lets you add destinations: hostname, URL (hostname only), IPv4, or CIDR.
 3. Applies specific routes so those destinations leave via the chosen LAN interface — without changing macOS service order.
 4. Scans saved URLs for related HTML/JavaScript hosts and adds them as expandable, independently switchable Sub-rules on the same interface.
+5. Pins selected macOS applications or Windows Win32 EXEs and reviewed helpers
+   to a physical interface with block/fallback behavior.
 
 ## Requirements
 
 - Flutter **3.47.4 stable** / Dart **3.13.3** (minimum versions in `pubspec.yaml`)
 - Xcode 15+ / macOS 14+ for running the app
 - Apple Development Team (same Team ID on app + helper) for privileged helper install
+- Windows: Visual Studio 2022, Windows SDK/WDK, CMake, WiX v4, and Test Mode for
+  test-signed driver development
 
 ## Setup
 
@@ -45,6 +48,12 @@ flutter analyze
 flutter test
 flutter build macos
 ```
+
+For Windows setup, test signing, build, installer, and the required two-adapter
+acceptance gate, see [`windows/README.md`](windows/README.md) and
+[`windows/IntegrationTests/WFP_GATE.md`](windows/IntegrationTests/WFP_GATE.md).
+The Windows Runner remains unelevated; route/WFP changes are accepted only by
+the installed LocalSystem service over its validated named-pipe API.
 
 ## Privileged helper
 

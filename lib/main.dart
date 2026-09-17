@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'app/netpilot_app.dart';
+import 'core/models/app_routing_rule.dart';
 import 'core/platform/network_platform.dart';
 import 'core/platform/app_routing_platform.dart';
 import 'features/app_routing/data/app_rules_repository.dart';
@@ -12,7 +13,11 @@ import 'features/routing_rules/domain/netpilot_controller.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final platform = (!kIsWeb && (defaultTargetPlatform == TargetPlatform.macOS))
+  final usesNativeDesktopBridge =
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.windows);
+  final platform = usesNativeDesktopBridge
       ? MethodChannelNetworkPlatform()
       : FakeNetworkPlatform();
 
@@ -20,13 +25,16 @@ Future<void> main() async {
     platform: platform,
     rulesRepository: FileRulesRepository(),
   );
-  final appPlatform = (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS)
+  final appPlatform = usesNativeDesktopBridge
       ? MethodChannelAppRoutingPlatform()
       : FakeAppRoutingPlatform();
   final appRoutingController = AppRoutingController(
     platform: appPlatform,
     repository: FileAppRulesRepository(),
     interfacesProvider: () => controller.interfaces,
+    hostPlatform: defaultTargetPlatform == TargetPlatform.windows
+        ? AppRoutingHostPlatform.windows
+        : AppRoutingHostPlatform.macos,
   );
 
   runApp(

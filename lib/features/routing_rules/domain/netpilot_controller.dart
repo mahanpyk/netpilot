@@ -319,7 +319,9 @@ class NetPilotController extends ChangeNotifier {
       String gatewayFor(RoutingRule rule) {
         final iface = _interfaces.cast<NetworkInterfaceInfo?>().firstWhere(
           (i) =>
-              i?.interfaceName == rule.interfaceId || i?.id == rule.interfaceId,
+              i?.nativeId == rule.interfaceId ||
+              i?.interfaceName == rule.interfaceId ||
+              i?.id == rule.interfaceId,
           orElse: () => null,
         );
         return iface?.gateway ?? '';

@@ -35,11 +35,11 @@ class _RuleEditorSheetState extends State<RuleEditorSheet> {
         existing?.interfaceId ??
         widget.controller.activeInterfaces
             .where((i) => i.kind == NetworkInterfaceKind.ethernet)
-            .map((i) => i.interfaceName)
+            .map((i) => i.nativeId)
             .cast<String?>()
             .firstWhere((_) => true, orElse: () => null) ??
         widget.controller.activeInterfaces
-            .map((i) => i.interfaceName)
+            .map((i) => i.nativeId)
             .cast<String?>()
             .firstWhere((_) => true, orElse: () => null);
     _previewIps = existing?.resolvedIps ?? [];
@@ -157,7 +157,7 @@ class _RuleEditorSheetState extends State<RuleEditorSheet> {
             items: ifaces
                 .map(
                   (i) => DropdownMenuItem(
-                    value: i.interfaceName,
+                    value: i.nativeId,
                     child: Text(
                       '${i.name.isEmpty ? i.interfaceName : i.name} (${i.interfaceName})'
                       '${i.isDefaultRoute ? ' · default' : ''}',

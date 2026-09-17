@@ -1,8 +1,10 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/models/app_routing_rule.dart';
 import '../../core/models/network_interface_info.dart';
 import '../../core/models/routing_rule.dart';
 import '../../core/platform/network_platform.dart';
@@ -104,6 +106,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                         _Tab.settings => _SettingsView(
                           helperStatus: c.helperStatus,
+                          appRoutingController: widget.appRoutingController,
                           busy: c.busy,
                           isDark: widget.themeMode == ThemeMode.dark,
                           onTheme: widget.onThemeChanged,
@@ -144,8 +147,10 @@ class _TopBar extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return Row(
       children: [
-        const _WindowControls(),
-        const SizedBox(width: 18),
+        if (defaultTargetPlatform == TargetPlatform.macOS) ...[
+          const _WindowControls(),
+          const SizedBox(width: 18),
+        ],
         Container(
           width: 38,
           height: 38,
@@ -349,6 +354,7 @@ class _NetworksView extends StatelessWidget {
 class _SettingsView extends StatelessWidget {
   const _SettingsView({
     required this.helperStatus,
+    required this.appRoutingController,
     required this.busy,
     required this.isDark,
     required this.onTheme,
@@ -356,6 +362,7 @@ class _SettingsView extends StatelessWidget {
   });
 
   final HelperStatus helperStatus;
+  final AppRoutingController appRoutingController;
   final bool busy;
   final bool isDark;
   final ValueChanged<bool> onTheme;
@@ -377,7 +384,12 @@ class _SettingsView extends StatelessWidget {
                 style: Theme.of(context).textTheme.headlineMedium,
               ),
               const SizedBox(height: 4),
-              const Text('Appearance and privileged routing helper status.'),
+              Text(
+                appRoutingController.hostPlatform ==
+                        AppRoutingHostPlatform.windows
+                    ? 'Appearance, Windows Service, and WFP Driver status.'
+                    : 'Appearance and privileged routing helper status.',
+              ),
               const SizedBox(height: 20),
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
@@ -392,7 +404,12 @@ class _SettingsView extends StatelessWidget {
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: Icon(Icons.security_outlined, color: colors.primary),
-                title: const Text('Privileged helper'),
+                title: Text(
+                  appRoutingController.hostPlatform ==
+                          AppRoutingHostPlatform.windows
+                      ? 'Windows Routing Engine'
+                      : 'Privileged helper',
+                ),
                 subtitle: Text(
                   helperStatus.message ?? 'Status: ${helperStatus.status}',
                 ),
@@ -408,12 +425,38 @@ class _SettingsView extends StatelessWidget {
                         label: const Text('Install / Repair'),
                       ),
               ),
+              if (appRoutingController.hostPlatform ==
+                  AppRoutingHostPlatform.windows) ...[
+                _statusRow(
+                  'Windows Service',
+                  appRoutingController.status.serviceStatus ?? 'unknown',
+                ),
+                _statusRow(
+                  'WFP Driver',
+                  appRoutingController.status.driverStatus ?? 'unknown',
+                ),
+                _statusRow(
+                  'Test Mode',
+                  appRoutingController.status.testMode ? 'enabled' : 'disabled',
+                ),
+                _statusRow(
+                  'Reboot required',
+                  appRoutingController.status.rebootRequired ? 'yes' : 'no',
+                ),
+              ],
             ],
           ),
         ),
       ),
     );
   }
+
+  Widget _statusRow(String label, String value) => ListTile(
+    dense: true,
+    contentPadding: EdgeInsets.zero,
+    title: Text(label),
+    trailing: Text(value),
+  );
 }
 
 class _WindowControls extends StatelessWidget {

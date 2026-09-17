@@ -111,4 +111,83 @@ void main() {
     );
     expect(controller.validate(), contains('unavailable physical interface'));
   });
+
+  test(
+    'allows unsigned Windows EXE by path and detects App ID overlap',
+    () async {
+      const windowsInterfaces = [
+        NetworkInterfaceInfo(
+          id: 'adapter-a',
+          nativeId: '1001',
+          name: 'Ethernet',
+          interfaceName: 'Ethernet',
+          kind: NetworkInterfaceKind.ethernet,
+          ipv4Addresses: ['10.0.0.2'],
+          dnsServers: [],
+          isDefaultRoute: false,
+          isActive: true,
+        ),
+        NetworkInterfaceInfo(
+          id: 'adapter-b',
+          nativeId: '1002',
+          name: 'Wi-Fi',
+          interfaceName: 'Wi-Fi',
+          kind: NetworkInterfaceKind.wifi,
+          ipv4Addresses: ['192.168.1.2'],
+          dnsServers: [],
+          isDefaultRoute: true,
+          isActive: true,
+        ),
+      ];
+      const windowsApp = AppDescriptor(
+        displayName: 'Browser.exe',
+        bundlePath: r'C:\Apps\Browser.exe',
+        bundleIdentifier: '',
+        signingIdentifier: '',
+        teamIdentifier: '',
+        platform: AppRoutingHostPlatform.windows,
+        executablePath: r'C:\Apps\Browser.exe',
+        wfpAppId: 'AABBCC',
+        isSigned: false,
+      );
+      final controller = AppRoutingController(
+        platform: FakeAppRoutingPlatform(
+          status: const AppRoutingStatus(
+            platform: 'windows',
+            extensionStatus: 'installed',
+            engineStatus: 'ready',
+            serviceStatus: 'running',
+            driverStatus: 'installed',
+            proxyStatus: 'stopped',
+          ),
+        ),
+        repository: MemoryAppRulesRepository(),
+        interfacesProvider: () => windowsInterfaces,
+        hostPlatform: AppRoutingHostPlatform.windows,
+      );
+      await controller.start();
+      await controller.upsertRule(
+        app: windowsApp,
+        interfaceId: '1001',
+        failurePolicy: AppRoutingFailurePolicy.block,
+      );
+      expect(controller.validate(), isNull);
+      await controller.upsertRule(
+        app: const AppDescriptor(
+          displayName: 'Same.exe',
+          bundlePath: r'C:\Other\Same.exe',
+          bundleIdentifier: '',
+          signingIdentifier: '',
+          teamIdentifier: '',
+          platform: AppRoutingHostPlatform.windows,
+          executablePath: r'C:\Other\Same.exe',
+          wfpAppId: 'aabbcc',
+          isSigned: false,
+        ),
+        interfaceId: '1002',
+        failurePolicy: AppRoutingFailurePolicy.block,
+      );
+      expect(controller.validate(), contains('conflicts'));
+    },
+  );
 }

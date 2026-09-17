@@ -33,7 +33,7 @@ void main() {
       StoredAppRoutingState(masterEnabled: true, rules: loaded.rules),
     );
     final saved = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-    expect(saved['version'], 1);
+    expect(saved['version'], 2);
     expect(saved['masterEnabled'], true);
     expect((saved['rules'] as List).single['failurePolicy'], 'block');
   });

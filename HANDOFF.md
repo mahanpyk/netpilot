@@ -9,19 +9,19 @@ NetPilot helps developers who are connected to **Wi‑Fi (internet)** and **comp
 1. See currently active network interfaces.
 2. Define destination rules (hostname / URL / IP / CIDR).
 3. Force those destinations out the chosen LAN interface via specific routes — without flipping service order.
-4. Pin all IPv4 TCP/UDP traffic from selected signed macOS applications to a
-   physical Wi-Fi or Ethernet interface with per-rule block/fallback behavior.
+4. Pin all IPv4 TCP/UDP traffic from selected macOS apps or Windows Win32 EXEs
+   to a physical Wi-Fi or Ethernet interface with per-rule block/fallback behavior.
 
 ## Scope (MVP / v1)
 
 | In scope | Out of scope (for now) |
 |---|---|
-| macOS 14+ | Windows |
+| macOS 14+, Windows 10 22H2/11 x64 | Linux, Windows ARM64 |
 | IPv4 | IPv6 |
 | Hostname, URL (hostname only), IPv4, CIDR | URL path-based routing |
 | Route reconcile via privileged helper | TLS MITM / HTTPS path inspection |
 | Local destination and application rule persistence | Cloud sync / accounts |
-| Per-app TCP/UDP (including QUIC) transparent relay | ICMP, raw IP, IPv6, TLS inspection |
+| Per-app TCP/UDP (including QUIC) transparent relay | ICMP, raw IP, IPv6, TLS inspection, MSIX/UWP |
 | Simple desktop UI | Tray-only / menubar-only app |
 
 ## Architecture overview
@@ -42,6 +42,18 @@ Apps tab → AppRoutingController → appRouting Method/Event channels
   → NetPilotTransparentProxy.systemextension
        → exact signing identifier + Team ID match
        → NWConnection with requiredInterface (TCP/UDP opaque relay)
+```
+
+```text
+Windows Flutter Runner (unelevated)
+  → Method/Event channels
+  → GetAdaptersAddresses / DnsQueryEx / NotifyIpInterfaceChange
+  → versioned length-prefixed named pipe (strict ACL + client path check)
+  → NetPilotService.exe (LocalSystem)
+       → CreateIpForwardEntry2 / DeleteIpForwardEntry2
+       → transactional WFP policy at ALE_CONNECT_REDIRECT_V4
+       → TCP/UDP loopback relay using IP_UNICAST_IF
+  → NetPilotWfp.sys callout driver (test-signed during development)
 ```
 
 ```mermaid
@@ -141,6 +153,21 @@ netpilot_desktop/
         ├── AppRoutingConfigTests.swift
         ├── RunnerTests.swift
         └── RouteManagerTests.swift
+└── windows/
+    ├── runner/                    # Flutter host + four native channels
+    │   ├── netpilot_plugin.*
+    │   ├── windows_network.*
+    │   ├── windows_app_inspector.*
+    │   └── service_client.*
+    ├── native/
+    │   ├── common/                # framed protocol, validation, WFP GUID/context
+    │   ├── service/               # LocalSystem route/WFP/relay owner
+    │   ├── driver/                # WFP callout source, INF, WDK project
+    │   ├── maintenance/           # fixed install/repair/remove operations
+    │   └── tests/                 # protocol/validation CTest
+    ├── installer/                 # WiX v4 Burn bundle + MSI
+    ├── scripts/                   # Test Mode, signing, build automation
+    └── IntegrationTests/WFP_GATE.md
 ```
 
 ## Data models
@@ -149,7 +176,8 @@ netpilot_desktop/
 
 | Field | Type | Notes |
 |---|---|---|
-| id | String | BSD name |
+| id | String | BSD name on macOS; adapter LUID string on Windows |
+| nativeId | String | Stable BSD name or Windows adapter LUID |
 | name | String | SC user-defined name |
 | interfaceName | String | BSD name |
 | kind | `wifi` \| `ethernet` \| `other` | Heuristic |
@@ -175,17 +203,20 @@ sub-rule tags use `netpilot:<parentId>:sub:<subRuleId>`.
 
 ### AppRoutingRule
 
-`AppRoutingRule` persists app name/icon/path, bundle identifier, exact main and
-bundled-helper signing identifiers, Team ID, physical interface, enabled state,
-`block`/`fallback` policy, status, and last error. Matching always requires the
-exact signing identifier **and** Team ID; Team ID alone never selects traffic.
+`AppRoutingRule` persistence is schema version 2 and includes `platform`.
+macOS keeps app name/icon/path, bundle identifier, exact main/helper signing
+identifiers and Team ID. Windows keeps canonical EXE path, exact WFP App ID,
+optional Authenticode publisher diagnostics, signed state, and up to 200 reviewed
+helper EXEs. Unsigned Win32 apps are intentionally path-only. Both platforms
+store the stable native interface id, `block`/`fallback`, status, and last error.
 Runtime flow/byte/error metrics are returned separately by the provider.
 
 ## Persistence
 
 - App support dir / `netpilot_rules.json` via `path_provider`
-- App support dir / `netpilot_app_rules.json` stores version 1 application
-  routing state (`masterEnabled` plus rules). A legacy bare rule list still loads.
+- App support dir / `netpilot_app_rules.json` stores version 2 application
+  routing state (`masterEnabled` plus platform identities and rules). Version 1
+  macOS objects and a legacy bare rule list still load without manual migration.
 - The pending configuration hash is SHA-256 over canonical provider-relevant
   fields. The applied hash is mirrored in
   `NETransparentProxyManager.protocolConfiguration.providerConfiguration`.
@@ -220,7 +251,7 @@ Emits `{ type: 'interfacesChanged' }` on SCDynamicStore changes.
 | Method | Args | Result |
 |---|---|---|
 | `selectApplication` | — | app descriptor with signing/team/helper identities and icon, or null |
-| `getStatus` | — | extension/proxy status, applied hash, global and per-rule metrics |
+| `getStatus` | — | platform, routing engine/service/driver/proxy status, reboot/Test Mode, applied hash, global and per-rule metrics |
 | `requestExtensionActivation` | — | status; may require approval in System Settings |
 | `applyAndRestart` | `{ masterEnabled, rules, configurationHash }` | updated status |
 | `getDiagnostics` | — | bounded `[NetPilot App Routing]` log lines |
@@ -241,6 +272,22 @@ provider flow logs are forwarded once into the Runner/Flutter terminal.
 - Plist embedded at: `Contents/Library/LaunchDaemons/`
 
 **Security:** Destination must be IPv4 CIDR; gateway optional IPv4; interface BSD-like name; tag must start with `netpilot:`. Fixed `/sbin/route` argv only. Managed inventory persisted under `/Library/Application Support/NetPilot/managed_routes.json`.
+
+### Windows service protocol
+
+- Pipe: `\\.\pipe\NetPilotService.v1`; 12-byte magic/version/operation/length
+  header followed by a bounded binary payload (4 MB maximum).
+- Fixed operations: `ping`, `status`, `reconcileRoutes`, `applyAppRouting`,
+  `restartProxy`, `diagnostics`, and installer-only `cleanup`.
+- Pipe ACL permits LocalSystem, Administrators, and interactive users. The
+  service additionally resolves the client PID and accepts only
+  `netpilot_desktop.exe` or `NetPilotMaintenance.exe` in the service's own
+  canonical installation directory.
+- The service revalidates CIDR, gateway, route tag, adapter LUID, canonical EXE
+  path, and WFP App ID. It never accepts commands or arbitrary shell text.
+- Managed route state is `%ProgramData%\NetPilot\managed_routes.json`; stale
+  entries are removed at service startup and all system state is deleted on
+  uninstall. User JSON in Application Support/AppData is preserved.
 
 Route argv: gateway routes use `-net <CIDR> <gateway> -ifp <BSD-name>:`;
 the trailing colon encodes the interface name for macOS `link_addr`. Direct
@@ -283,6 +330,11 @@ reapplies rules after a successful ping.
   working Close / Minimize / Zoom controls through `windowAction`. The controls
   use a compact Liquid Glass-inspired capsule with adaptive light/dark material,
   gloss, depth, and hover/press feedback.
+- Windows x64 development uses Test Mode plus a local test code-signing
+  certificate for `NetPilotWfp.sys` and its CAT. The Flutter Runner stays
+  unelevated; WiX Setup/Maintenance is the only UAC entry point. Public packages
+  require Microsoft Hardware Dashboard driver signing. No certificate or
+  thumbprint is committed.
 
 ## UI map
 
@@ -302,6 +354,10 @@ reapplies rules after a successful ping.
 - Apps shows extension/proxy state, master switch, signed `.app` picker,
   physical interface and block/fallback editors, helper count, per-rule flow and
   byte metrics, errors, Pending Changes, and manual **Apply & Restart Proxy**.
+- On Windows, Apps selects `.exe`, displays Authenticode/publisher or a visible
+  unsigned path-only warning, and asks the user to review discovered helper
+  candidates. Settings reports Windows Service, WFP Driver, Test Mode, reboot,
+  and Repair. Windows retains its native title bar and taskbar controls.
 
 ## Per-app transparent proxy
 
@@ -368,6 +424,15 @@ profile are configured, use
 The route parser regression uses `/sbin/route -n -d -v get` (read-only debug
 mode) to check gateway flags and interface encoding without mutating routes.
 
+Windows source/build gates are in `windows/scripts`. `build_windows.ps1` runs
+Flutter analyze/tests/build, MSBuild x64 for the WDK driver, Inf2Cat, SignTool,
+and CTest before producing installer inputs. The mandatory real-network gate is
+documented in `windows/IntegrationTests/WFP_GATE.md` and covers exact App ID,
+TCP, UDP, QUIC, block/fallback, two adapters, restart, sleep/resume, Driver
+Verifier, stress, and installer lifecycle on Windows 11 VM and physical Windows
+10/11. This macOS host has no Windows hypervisor/SDK/WDK, so those native gates
+remain unexecuted until the Windows VM is available.
+
 ## Known limitations
 
 - Hostname → IP: CDN/shared IPs may mis-route unrelated hosts.
@@ -383,6 +448,12 @@ mode) to check gateway flags and interface encoding without mutating routes.
   attributed to the originating app. ICMP/raw IP, IPv6, standalone scripts and
   executables, and VPN/`utun` stacking are outside this phase.
 - No path-level URL routing.
+- Windows supports Win32 EXEs only. Unsigned EXEs remain matched after the file
+  at the same canonical path is replaced; the UI documents this path-only risk.
+- Windows driver/service/installer and relay source are implemented but cannot
+  be accepted until the mandatory signed VM gate verifies UDP/QUIC redirect
+  context behavior on Windows 10/11. No PID matching, injection, or third-party
+  driver fallback is permitted if that gate fails.
 
 ## Architecture decisions
 
@@ -399,6 +470,9 @@ mode) to check gateway flags and interface encoding without mutating routes.
 | App identity | Exact signing identifier + Team ID | Stable identity without unsafe PID-only matching |
 | Per-app egress | `NWConnection.requiredInterface` | Pins TCP/UDP relay connections to physical Wi-Fi/Ethernet |
 | App changes | Explicit Apply & Restart | Keeps edits pending and makes flow reevaluation visible |
+| Windows privilege | LocalSystem service + WFP callout | Keeps Flutter unelevated and constrains mutations |
+| Windows app identity | Canonical EXE path + exact WFP App ID | Matches ALE identity; signed publisher is discovery-only |
+| Windows installer | WiX v4 Burn + MSI + fixed maintenance executable | UAC, repair, rollback, driver/service lifecycle |
 
 ## Feature status
 
@@ -414,10 +488,15 @@ mode) to check gateway flags and interface encoding without mutating routes.
 | URL dependency discovery + sub-rules | Done |
 | Per-app UI, persistence, native bridge, System Extension | Done (signed integration pending Team/profile) |
 | Desktop UI | Done |
-| Windows | Not started |
+| Windows Flutter models/UI/native bridge | Done |
+| Windows inventory/DNS/destination routes | Implemented; Windows build/integration pending |
+| Windows WFP driver/service/TCP-UDP relay | Implemented, including secured service-PID registration and TCP/UDP redirect-record propagation; signed integration gate pending |
+| Windows WiX installer and test-sign scripts | Implemented; Windows lifecycle test pending |
 | IPv6 | Not started |
 
 ## Changelog
+
+- **2026-09-18** — Added Windows 10 22H2/11 x64 implementation on `codex/windows-parity`: platform-neutral schema v2 identities and stable adapter ids; Windows Method/Event channels; physical adapter inventory, interface-scoped DNS and notifications; canonical EXE/AuthentiCode/helper/icon discovery; a bounded named-pipe protocol; LocalSystem route/WFP/relay service; primitive WFP connect-redirect driver package; secured service-PID registration; loop-safe redirect state checks; TCP/UDP redirect-record propagation and source/interface-bound relay with metrics; block/fallback and atomic apply; native Windows title bar/settings; NetPilot multi-resolution ICO; fixed-operation maintenance executable; WiX Burn/MSI setup with repair/rollback/uninstall; test-sign/build scripts, CTest and mandatory VM/physical acceptance documentation. Flutter analyze and all 33 Dart/widget tests pass on macOS. Windows SDK/WDK build, signed driver install, UDP/QUIC gate, and installer lifecycle remain pending because this host has no Windows VM/hypervisor.
 
 - **2026-09-17** — Added Phase 2 per-app split tunneling: Apps UI and versioned persistence, pending/applied hashes, signed `.app` and helper inspection, conflict/physical-interface validation, System Extension activation/status channels, and a `NETransparentProxyProvider` target that matches exact app identity and relays opaque IPv4 TCP/UDP/QUIC with `NWParameters.requiredInterface`. Added block/fallback policies, per-rule flow/byte/error diagnostics, manual Apply & Restart, host/extension entitlements, Dart tests, and Swift identity matching tests. Unsigned native compilation passes; signed installation and live egress testing remain gated on an Apple Team/profile with Network Extension permission.
 - **2026-09-17** — Added automatic URL dependency discovery and persisted Sub-rules. URL Save now applies the parent route, scans HTML/inline JS/same-origin JS within bounded limits, resolves and applies discovered hosts, exposes per-child toggles and status, preserves child choices on resave, and falls back to the parent on scan failure. Route planning now de-duplicates equivalent CIDRs and blocks exact cross-interface conflicts with diagnostics. Existing JSON remains backward compatible.

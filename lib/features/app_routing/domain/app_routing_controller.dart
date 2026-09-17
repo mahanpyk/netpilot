@@ -16,6 +16,7 @@ class AppRoutingController extends ChangeNotifier {
     required AppRoutingPlatform platform,
     required AppRulesRepository repository,
     required List<NetworkInterfaceInfo> Function() interfacesProvider,
+    this.hostPlatform = AppRoutingHostPlatform.macos,
     Uuid? uuid,
   }) : _platform = platform,
        _repository = repository,
@@ -26,6 +27,7 @@ class AppRoutingController extends ChangeNotifier {
   final AppRulesRepository _repository;
   final List<NetworkInterfaceInfo> Function() _interfacesProvider;
   final Uuid _uuid;
+  final AppRoutingHostPlatform hostPlatform;
 
   List<AppRoutingRule> _rules = [];
   bool _masterEnabled = false;
@@ -106,6 +108,7 @@ class AppRoutingController extends ChangeNotifier {
     required String interfaceId,
     required AppRoutingFailurePolicy failurePolicy,
     bool enabled = true,
+    List<AppExecutableIdentity>? helperExecutables,
   }) async {
     final index = id == null ? -1 : _rules.indexWhere((rule) => rule.id == id);
     final rule = AppRoutingRule(
@@ -116,6 +119,12 @@ class AppRoutingController extends ChangeNotifier {
       signingIdentifier: app.signingIdentifier,
       teamIdentifier: app.teamIdentifier,
       helperSigningIdentifiers: app.helperSigningIdentifiers,
+      platform: app.platform,
+      executablePath: app.executablePath,
+      wfpAppId: app.wfpAppId,
+      publisher: app.publisher,
+      isSigned: app.isSigned,
+      helperExecutables: helperExecutables ?? app.helperExecutables,
       iconPngBase64: app.iconPngBase64,
       interfaceId: interfaceId,
       enabled: enabled,
@@ -136,6 +145,7 @@ class AppRoutingController extends ChangeNotifier {
     required AppRoutingRule rule,
     required String interfaceId,
     required AppRoutingFailurePolicy failurePolicy,
+    List<AppExecutableIdentity>? helperExecutables,
   }) async {
     final index = _rules.indexWhere((item) => item.id == rule.id);
     if (index < 0) return;
@@ -143,6 +153,7 @@ class AppRoutingController extends ChangeNotifier {
       ..[index] = rule.copyWith(
         interfaceId: interfaceId,
         failurePolicy: failurePolicy,
+        helperExecutables: helperExecutables,
         status: AppRoutingRuleStatus.pending,
         clearLastError: true,
         updatedAt: DateTime.now(),
@@ -176,8 +187,12 @@ class AppRoutingController extends ChangeNotifier {
   Future<void> installExtension() async {
     await _runBusy(() async {
       _status = await _platform.installExtension();
-      if (!_status.extensionReady) {
-        _error = _status.message ?? 'System Extension is not installed yet.';
+      if (!_status.routingEngineReady) {
+        _error =
+            _status.message ??
+            (hostPlatform == AppRoutingHostPlatform.windows
+                ? 'Windows Routing Engine is not ready yet.'
+                : 'System Extension is not installed yet.');
       }
     });
   }
@@ -228,18 +243,24 @@ class AppRoutingController extends ChangeNotifier {
   }
 
   String? validate() {
-    final interfaces =
-        physicalInterfaces.map((item) => item.interfaceName).toSet()
-          ..addAll(physicalInterfaces.map((item) => item.id));
+    final interfaces = physicalInterfaces.map((item) => item.nativeId).toSet()
+      ..addAll(physicalInterfaces.map((item) => item.interfaceName))
+      ..addAll(physicalInterfaces.map((item) => item.id));
     final owners = <String, AppRoutingRule>{};
     for (final rule in _rules.where((item) => item.enabled)) {
-      if (rule.signingIdentifier.isEmpty || rule.teamIdentifier.isEmpty) {
+      if (rule.platform == AppRoutingHostPlatform.macos &&
+          (rule.signingIdentifier.isEmpty || rule.teamIdentifier.isEmpty)) {
         return '${rule.displayName} does not have a verifiable signing identifier and Team ID.';
+      }
+      if (rule.platform == AppRoutingHostPlatform.windows &&
+          ((rule.executablePath ?? '').isEmpty ||
+              (rule.wfpAppId ?? '').isEmpty)) {
+        return '${rule.displayName} does not have a canonical EXE path and WFP App ID.';
       }
       if (!interfaces.contains(rule.interfaceId)) {
         return '${rule.displayName} uses unavailable physical interface ${rule.interfaceId}.';
       }
-      for (final identifier in rule.allSigningIdentifiers) {
+      for (final identifier in rule.allIdentityKeys) {
         final previous = owners[identifier];
         if (previous != null && previous.interfaceId != rule.interfaceId) {
           return 'Signing identifier $identifier conflicts between '

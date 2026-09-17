@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netpilot_desktop/app/netpilot_app.dart';
 import 'package:netpilot_desktop/core/models/routing_rule.dart';
@@ -11,6 +12,44 @@ import 'package:netpilot_desktop/features/routing_rules/data/rules_repository.da
 import 'package:netpilot_desktop/features/routing_rules/domain/netpilot_controller.dart';
 
 void main() {
+  testWidgets('Windows UI uses routing-engine language and native chrome', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    tester.view.physicalSize = const Size(1180, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final controller = NetPilotController(
+      platform: FakeNetworkPlatform(),
+      rulesRepository: MemoryRulesRepository(),
+    );
+    final appController = AppRoutingController(
+      platform: FakeAppRoutingPlatform(),
+      repository: MemoryAppRulesRepository(),
+      interfacesProvider: () => controller.interfaces,
+      hostPlatform: AppRoutingHostPlatform.windows,
+    );
+    await tester.pumpWidget(
+      NetPilotApp(controller: controller, appRoutingController: appController),
+    );
+    await controller.start();
+    await appController.start();
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Close'), findsNothing);
+    debugDefaultTargetPlatformOverride = null;
+    await tester.tap(find.text('Apps'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Windows Routing Engine'), findsOneWidget);
+    expect(find.textContaining('Win32 applications'), findsOneWidget);
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('WFP Driver'), findsOneWidget);
+    expect(find.text('Windows Service'), findsOneWidget);
+  });
+
   testWidgets('home shows interfaces and add rule', (tester) async {
     tester.view.physicalSize = const Size(1180, 760);
     tester.view.devicePixelRatio = 1;

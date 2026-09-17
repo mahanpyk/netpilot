@@ -1,0 +1,5 @@
+add_executable(NetPilotMaintenance maintenance_main.cpp ../common/netpilot_protocol.cpp)
+apply_standard_settings(NetPilotMaintenance)
+target_compile_definitions(NetPilotMaintenance PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(NetPilotMaintenance PRIVATE advapi32 newdev ole32 setupapi shell32 uuid)
+install(TARGETS NetPilotMaintenance RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)

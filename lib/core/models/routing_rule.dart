@@ -220,6 +220,7 @@ class DesiredRoute {
   Map<String, Object?> toMap() => {
     'destination': destinationCidr,
     'gateway': gateway,
+    'interfaceId': interfaceName,
     'interfaceName': interfaceName,
     'tag': tag,
   };

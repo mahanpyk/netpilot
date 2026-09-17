@@ -8,6 +8,12 @@ class AppRoutingStatus {
   const AppRoutingStatus({
     required this.extensionStatus,
     required this.proxyStatus,
+    this.platform = 'macos',
+    this.engineStatus,
+    this.serviceStatus,
+    this.driverStatus,
+    this.rebootRequired = false,
+    this.testMode = false,
     this.appliedHash,
     this.approvalRequired = false,
     this.message,
@@ -19,6 +25,12 @@ class AppRoutingStatus {
 
   final String extensionStatus;
   final String proxyStatus;
+  final String platform;
+  final String? engineStatus;
+  final String? serviceStatus;
+  final String? driverStatus;
+  final bool rebootRequired;
+  final bool testMode;
   final String? appliedHash;
   final bool approvalRequired;
   final String? message;
@@ -28,12 +40,20 @@ class AppRoutingStatus {
   final Map<String, AppRoutingRuleMetrics> ruleMetrics;
 
   bool get extensionReady => extensionStatus == 'installed';
+  bool get routingEngineReady =>
+      engineStatus == 'ready' || extensionStatus == 'installed';
   bool get proxyRunning => proxyStatus == 'running';
 
   factory AppRoutingStatus.fromMap(Map<Object?, Object?> map) =>
       AppRoutingStatus(
         extensionStatus: map['extensionStatus']?.toString() ?? 'unknown',
         proxyStatus: map['proxyStatus']?.toString() ?? 'stopped',
+        platform: map['platform']?.toString() ?? 'macos',
+        engineStatus: map['engineStatus']?.toString(),
+        serviceStatus: map['serviceStatus']?.toString(),
+        driverStatus: map['driverStatus']?.toString(),
+        rebootRequired: map['rebootRequired'] as bool? ?? false,
+        testMode: map['testMode'] as bool? ?? false,
         appliedHash: map['appliedHash']?.toString(),
         approvalRequired: map['approvalRequired'] as bool? ?? false,
         message: map['message']?.toString(),
@@ -174,6 +194,10 @@ class FakeAppRoutingPlatform implements AppRoutingPlatform {
     status = AppRoutingStatus(
       extensionStatus: 'installed',
       proxyStatus: status.proxyStatus,
+      platform: status.platform,
+      engineStatus: status.engineStatus,
+      serviceStatus: status.serviceStatus,
+      driverStatus: status.driverStatus,
       appliedHash: status.appliedHash,
     );
     return status;
@@ -189,6 +213,10 @@ class FakeAppRoutingPlatform implements AppRoutingPlatform {
     status = AppRoutingStatus(
       extensionStatus: 'installed',
       proxyStatus: masterEnabled ? 'running' : 'stopped',
+      platform: status.platform,
+      engineStatus: status.engineStatus,
+      serviceStatus: status.serviceStatus,
+      driverStatus: status.driverStatus,
       appliedHash: configurationHash,
     );
     return status;

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="NetPilot" Manufacturer="NetPilot" Version="1.0.1"
+           UpgradeCode="8F36A339-E8AE-4192-A483-D6501F81FC07"
+           Scope="perMachine" InstallerVersion="500">
+    <MajorUpgrade DowngradeErrorMessage="A newer NetPilot version is installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="NetPilot" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="NetPilot" />
+    </StandardDirectory>
+    <Feature Id="MainFeature" Title="NetPilot" Level="1">
+      <ComponentGroupRef Id="NetPilotFiles" />
+      <ComponentRef Id="ProgramMenuShortcut" />
+    </Feature>
+    <ComponentGroup Id="NetPilotFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PublishDir)\**" Exclude="$(var.PublishDir)\NetPilotMaintenance.exe" />
+      <Component Id="MaintenanceComponent" Guid="*">
+        <File Id="NetPilotMaintenanceExe" Source="$(var.PublishDir)\NetPilotMaintenance.exe" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+    <Component Id="ProgramMenuShortcut" Directory="ApplicationProgramsFolder" Guid="*">
+      <Shortcut Id="NetPilotShortcut" Name="NetPilot" Target="[INSTALLFOLDER]netpilot_desktop.exe" WorkingDirectory="INSTALLFOLDER" />
+      <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
+      <RegistryValue Root="HKLM" Key="Software\NetPilot" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+    <CustomAction Id="InstallSystemComponents" FileRef="NetPilotMaintenanceExe" ExeCommand="install" Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="RollbackSystemComponents" FileRef="NetPilotMaintenanceExe" ExeCommand="remove" Execute="rollback" Impersonate="no" Return="ignore" />
+    <CustomAction Id="RemoveSystemComponents" FileRef="NetPilotMaintenanceExe" ExeCommand="remove" Execute="deferred" Impersonate="no" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="RollbackSystemComponents" Before="InstallSystemComponents" Condition="NOT Installed OR REINSTALL" />
+      <Custom Action="InstallSystemComponents" After="InstallFiles" Condition="NOT Installed OR REINSTALL" />
+      <Custom Action="RemoveSystemComponents" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>
