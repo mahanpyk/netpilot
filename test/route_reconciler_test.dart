@@ -65,6 +65,71 @@ void main() {
       gatewayFor: (_) => '10.0.0.1',
     );
     expect(desired.length, 2);
-    expect(desired.map((e) => e.destinationCidr), ['1.1.1.1/32', '1.0.0.1/32']);
+    expect(desired.map((e) => e.destinationCidr).toSet(), {
+      '1.1.1.1/32',
+      '1.0.0.1/32',
+    });
   });
+
+  test('plan de-duplicates equivalent parent and sub-rule routes', () {
+    final rules = [
+      RoutingRule(
+        id: 'parent',
+        rawDestination: 'https://example.test',
+        kind: DestinationKind.url,
+        normalizedDestination: 'example.test',
+        interfaceId: 'en7',
+        enabled: true,
+        resolvedIps: const ['203.0.113.10'],
+        status: RuleStatus.pending,
+        updatedAt: DateTime(2026),
+        subRules: const [
+          RoutingSubRule(
+            id: 'child',
+            destination: 'api.example.test',
+            kind: DestinationKind.hostname,
+            enabled: true,
+            resolvedIps: ['203.0.113.10'],
+            status: RuleStatus.pending,
+          ),
+        ],
+      ),
+    ];
+
+    final plan = reconciler.planFromRules(rules, gatewayFor: (_) => '10.0.0.1');
+
+    expect(plan.routes, hasLength(1));
+    expect(plan.routes.single.destinationCidr, '203.0.113.10/32');
+    expect(plan.hasConflicts, isFalse);
+  });
+
+  test(
+    'plan blocks an exact destination requested via different interfaces',
+    () {
+      RoutingRule rule(String id, String interface) => RoutingRule(
+        id: id,
+        rawDestination: '$id.example.test',
+        kind: DestinationKind.hostname,
+        normalizedDestination: '$id.example.test',
+        interfaceId: interface,
+        enabled: true,
+        resolvedIps: const ['203.0.113.50'],
+        status: RuleStatus.pending,
+        updatedAt: DateTime(2026),
+      );
+
+      final plan = reconciler.planFromRules(
+        [rule('one', 'en7'), rule('two', 'en8')],
+        gatewayFor: (rule) =>
+            rule.interfaceId == 'en7' ? '10.0.0.1' : '192.168.8.1',
+      );
+
+      expect(plan.routes, isEmpty);
+      expect(plan.conflictsByRuleId.keys, containsAll(['one', 'two']));
+      expect(
+        plan.conflictsByRuleId['one']!.single,
+        contains('203.0.113.50/32'),
+      );
+    },
+  );
 }

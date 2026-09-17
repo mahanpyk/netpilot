@@ -11,6 +11,7 @@ Split routing for developers on dual networks (Wi‑Fi for internet + LAN for in
 1. Lists active network interfaces (Wi‑Fi, Ethernet, …).
 2. Lets you add destinations: hostname, URL (hostname only), IPv4, or CIDR.
 3. Applies specific routes so those destinations leave via the chosen LAN interface — without changing macOS service order.
+4. Scans saved URLs for related HTML/JavaScript hosts and adds them as expandable, independently switchable Sub-rules on the same interface.
 
 ## Requirements
 

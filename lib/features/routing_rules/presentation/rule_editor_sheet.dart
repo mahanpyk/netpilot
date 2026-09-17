@@ -6,11 +6,7 @@ import '../../../core/utils/destination_parser.dart';
 import '../domain/netpilot_controller.dart';
 
 class RuleEditorSheet extends StatefulWidget {
-  const RuleEditorSheet({
-    super.key,
-    required this.controller,
-    this.existing,
-  });
+  const RuleEditorSheet({super.key, required this.controller, this.existing});
 
   final NetPilotController controller;
   final RoutingRule? existing;
@@ -27,6 +23,7 @@ class _RuleEditorSheetState extends State<RuleEditorSheet> {
   List<String> _previewIps = [];
   bool _resolving = false;
   bool _saving = false;
+  bool _scanningDependencies = false;
 
   @override
   void initState() {
@@ -34,7 +31,8 @@ class _RuleEditorSheetState extends State<RuleEditorSheet> {
     final existing = widget.existing;
     _destination = TextEditingController(text: existing?.rawDestination ?? '');
     _label = TextEditingController(text: existing?.label ?? '');
-    _interfaceId = existing?.interfaceId ??
+    _interfaceId =
+        existing?.interfaceId ??
         widget.controller.activeInterfaces
             .where((i) => i.kind == NetworkInterfaceKind.ethernet)
             .map((i) => i.interfaceName)
@@ -98,6 +96,10 @@ class _RuleEditorSheetState extends State<RuleEditorSheet> {
       _error = null;
     });
     try {
+      final parsed = widget.controller.previewDestination(_destination.text);
+      if (parsed.kind == DestinationKind.url) {
+        setState(() => _scanningDependencies = true);
+      }
       await widget.controller.upsertRule(
         id: widget.existing?.id,
         rawDestination: _destination.text,
@@ -111,7 +113,12 @@ class _RuleEditorSheetState extends State<RuleEditorSheet> {
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _scanningDependencies = false;
+        });
+      }
     }
   }
 
@@ -141,9 +148,7 @@ class _RuleEditorSheetState extends State<RuleEditorSheet> {
           const SizedBox(height: 10),
           TextField(
             controller: _label,
-            decoration: const InputDecoration(
-              labelText: 'Label (optional)',
-            ),
+            decoration: const InputDecoration(labelText: 'Label (optional)'),
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
@@ -196,7 +201,11 @@ class _RuleEditorSheetState extends State<RuleEditorSheet> {
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _saving ? null : _save,
-            child: Text(_saving ? 'Saving…' : 'Save & apply'),
+            child: Text(
+              _scanningDependencies
+                  ? 'Scanning dependencies…'
+                  : (_saving ? 'Saving…' : 'Save & apply'),
+            ),
           ),
           const SizedBox(height: 8),
         ],

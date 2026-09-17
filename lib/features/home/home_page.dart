@@ -258,6 +258,8 @@ class _RulesView extends StatelessWidget {
                             onDelete: () => controller.deleteRule(rule.id),
                             onToggle: (enabled) =>
                                 controller.setRuleEnabled(rule.id, enabled),
+                            onSubRuleToggle: (subRuleId, enabled) => controller
+                                .setSubRuleEnabled(rule.id, subRuleId, enabled),
                           );
                         },
                       ),

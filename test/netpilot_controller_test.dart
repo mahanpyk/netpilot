@@ -1,38 +1,160 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:netpilot_desktop/core/models/routing_rule.dart';
 import 'package:netpilot_desktop/core/platform/network_platform.dart';
+import 'package:netpilot_desktop/core/utils/dependency_scanner.dart';
 import 'package:netpilot_desktop/features/routing_rules/data/rules_repository.dart';
 import 'package:netpilot_desktop/features/routing_rules/domain/netpilot_controller.dart';
 
 void main() {
-  test('controller upserts rule, resolves, and reconciles', () async {
+  test('URL save discovers, resolves, and applies sub-rules', () async {
+    final scanner = FakeDependencyScanner([
+      'api.company.local',
+      '203.0.113.20',
+    ]);
     final platform = FakeNetworkPlatform(
       resolveMap: {
         'intranet.company.local': ['10.10.1.5'],
+        'api.company.local': ['10.10.1.6'],
       },
     );
     final repo = MemoryRulesRepository();
     final controller = NetPilotController(
       platform: platform,
       rulesRepository: repo,
+      dependencyScanner: scanner,
     );
+    addTearDown(controller.dispose);
 
     await controller.start();
-    expect(controller.interfaces.length, 2);
-
     await controller.upsertRule(
       rawDestination: 'https://intranet.company.local/wiki',
       interfaceId: 'en7',
       label: 'Wiki',
     );
 
-    expect(controller.rules.length, 1);
-    expect(controller.rules.first.normalizedDestination, 'intranet.company.local');
-    expect(controller.rules.first.resolvedIps, ['10.10.1.5']);
-    expect(controller.rules.first.status.name, 'applied');
-    expect(platform.managed.length, 1);
-    expect(platform.managed.first.destinationCidr, '10.10.1.5/32');
-
-    final loaded = await repo.load();
-    expect(loaded.length, 1);
+    final rule = controller.rules.single;
+    expect(rule.normalizedDestination, 'intranet.company.local');
+    expect(rule.dependencyScanStatus, DependencyScanStatus.succeeded);
+    expect(rule.subRules.map((subRule) => subRule.destination), [
+      'api.company.local',
+      '203.0.113.20',
+    ]);
+    expect(rule.subRules.first.resolvedIps, ['10.10.1.6']);
+    expect(rule.subRules.every((subRule) => subRule.enabled), isTrue);
+    expect(platform.managed.map((route) => route.destinationCidr).toSet(), {
+      '10.10.1.5/32',
+      '10.10.1.6/32',
+      '203.0.113.20/32',
+    });
+    expect(scanner.scanCount, 1);
   });
+
+  test('scan failure keeps and applies only the parent rule', () async {
+    final scanner = FakeDependencyScanner(
+      const [],
+      error: const DependencyScanException('Page unavailable'),
+    );
+    final platform = FakeNetworkPlatform(
+      resolveMap: {
+        'intranet.company.local': ['10.10.1.5'],
+      },
+    );
+    final controller = NetPilotController(
+      platform: platform,
+      rulesRepository: MemoryRulesRepository(),
+      dependencyScanner: scanner,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.start();
+    await controller.upsertRule(
+      rawDestination: 'https://intranet.company.local/wiki',
+      interfaceId: 'en7',
+    );
+
+    final rule = controller.rules.single;
+    expect(rule.dependencyScanStatus, DependencyScanStatus.failed);
+    expect(rule.dependencyScanError, 'Page unavailable');
+    expect(rule.subRules, isEmpty);
+    expect(platform.managed.single.destinationCidr, '10.10.1.5/32');
+  });
+
+  test('resave preserves toggles and DNS refresh does not rescan', () async {
+    final scanner = FakeDependencyScanner(['api.company.local']);
+    final platform = FakeNetworkPlatform(
+      resolveMap: {
+        'intranet.company.local': ['10.10.1.5'],
+        'api.company.local': ['10.10.1.6'],
+        'cdn.company.local': ['10.10.1.7'],
+      },
+    );
+    final controller = NetPilotController(
+      platform: platform,
+      rulesRepository: MemoryRulesRepository(),
+      dependencyScanner: scanner,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.start();
+    await controller.upsertRule(
+      rawDestination: 'https://intranet.company.local/wiki',
+      interfaceId: 'en7',
+    );
+    final original = controller.rules.single;
+    final originalSubRule = original.subRules.single;
+    await controller.setSubRuleEnabled(original.id, originalSubRule.id, false);
+
+    scanner.destinations = ['api.company.local', 'cdn.company.local'];
+    await controller.upsertRule(
+      id: original.id,
+      rawDestination: original.rawDestination,
+      interfaceId: 'en7',
+    );
+
+    final saved = controller.rules.single;
+    final preserved = saved.subRules.firstWhere(
+      (subRule) => subRule.destination == 'api.company.local',
+    );
+    expect(preserved.id, originalSubRule.id);
+    expect(preserved.enabled, isFalse);
+    expect(
+      saved.subRules
+          .firstWhere((subRule) => subRule.destination == 'cdn.company.local')
+          .enabled,
+      isTrue,
+    );
+    expect(scanner.scanCount, 2);
+
+    await controller.refreshResolutions();
+    expect(scanner.scanCount, 2);
+
+    await controller.setRuleEnabled(saved.id, false);
+    expect(platform.managed, isEmpty);
+    await controller.setRuleEnabled(saved.id, true);
+    expect(platform.managed.map((route) => route.destinationCidr).toSet(), {
+      '10.10.1.5/32',
+      '10.10.1.7/32',
+    });
+    await controller.deleteRule(saved.id);
+    expect(platform.managed, isEmpty);
+  });
+}
+
+class FakeDependencyScanner implements DependencyScanner {
+  FakeDependencyScanner(this.destinations, {this.error});
+
+  List<String> destinations;
+  Object? error;
+  int scanCount = 0;
+
+  @override
+  Future<DependencyScanResult> scan(Uri uri) async {
+    scanCount += 1;
+    final failure = error;
+    if (failure != null) throw failure;
+    return DependencyScanResult(
+      destinations: List.of(destinations),
+      finalUri: uri,
+    );
+  }
 }

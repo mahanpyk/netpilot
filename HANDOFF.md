@@ -25,7 +25,7 @@ NetPilot helps developers who are connected to **Wi‑Fi (internet)** and **comp
 
 ```text
 Flutter UI
-  → NetPilotController / DestinationParser / RouteReconciler
+  → NetPilotController / DestinationParser / DependencyScanner / RouteReconciler
   → MethodChannel + EventChannel
        → NetworkInventoryService (SystemConfiguration)
        → HelperXPCClient → NetPilotHelper (SMAppService / NSXPC)
@@ -36,6 +36,7 @@ Flutter UI
 flowchart LR
     FlutterUI[Flutter UI] --> RuleController[NetPilotController]
     RuleController --> DestinationResolver[DestinationParser + resolveHost]
+    RuleController --> DependencyScanner[Static HTML + JavaScript dependency scan]
     RuleController --> PlatformBridge[NetworkPlatform]
     PlatformBridge --> NetworkInventory[NetworkInventoryService]
     PlatformBridge --> XPCClient[HelperXPCClient]
@@ -64,6 +65,7 @@ netpilot_desktop/
 │   │   │   └── network_platform.dart
 │   │   └── utils/
 │   │       ├── destination_parser.dart
+│   │       ├── dependency_scanner.dart
 │   │       └── route_reconciler.dart
 │   └── features/
 │       ├── home/
@@ -78,7 +80,9 @@ netpilot_desktop/
 │               └── rule_tile.dart
 ├── test/
 │   ├── destination_parser_test.dart
+│   ├── dependency_scanner_test.dart
 │   ├── route_reconciler_test.dart
+│   ├── routing_rule_test.dart
 │   ├── netpilot_controller_test.dart
 │   └── widget_test.dart
 └── macos/
@@ -131,12 +135,19 @@ URL → hostname only (path/query discarded). Parser checks URL scheme **before*
 
 ### RoutingRule / DesiredRoute
 
-See `lib/core/models/routing_rule.dart`. Desired routes carry `tag = netpilot:<ruleId>`.
+See `lib/core/models/routing_rule.dart`. URL rules can own persisted
+`RoutingSubRule` records containing a discovered hostname/IP, stable id,
+enabled state, resolved IPv4 addresses, and route status. Sub-rules inherit the
+parent interface and lifecycle. Desired routes carry `tag = netpilot:<ruleId>`;
+sub-rule tags use `netpilot:<parentId>:sub:<subRuleId>`.
 
 ## Persistence
 
 - App support dir / `netpilot_rules.json` via `path_provider`
 - `FileRulesRepository` / `MemoryRulesRepository` (tests)
+- Rule JSON now includes `subRules`, `dependencyScanStatus`, and
+  `dependencyScanError`. Missing fields default to an empty/not-applicable scan,
+  so existing rule files load without migration.
 - `path_provider_foundation` 2.6.0 uses Dart native assets/FFI on macOS;
   it no longer registers a Flutter plugin or installs a CocoaPod. Flutter
   generates the native asset build integration; the JSON persistence format
@@ -209,10 +220,36 @@ reapplies rules after a successful ping.
   each tab owns its scrollable content. Rules includes a collapsible Diagnostics
   panel; Settings contains the light/dark theme switch. Dark mode is default
   with green primary actions on neutral graphite surfaces.
-- Add/Edit sheet: destination, label, interface, resolve preview, save & apply
+- Add/Edit sheet: destination, label, interface, resolve preview, save & apply;
+  saving a URL applies the parent first and then displays dependency scan progress
+- URL rule cards expose an expandable discovered-dependencies list with an
+  independent toggle, resolved IPs, and status for every sub-rule
 - Helper banner with Install when not enabled
 - Route reconciliation writes desired routes, result counts, errors, and thrown
   exceptions to the `flutter run` terminal with the `[NetPilot]` prefix.
+- Dependency discovery writes scanned URLs, discovered hosts, failures, and
+  route conflicts to the terminal with the same prefix.
+
+## URL dependency discovery
+
+Saving an HTTP(S) URL first persists and applies its parent hostname so the scan
+uses the selected route. `HttpDependencyScanner` then follows up to 5 redirects,
+parses resource-bearing HTML elements and inline JavaScript request expressions,
+and downloads up to 20 same-origin JavaScript files. Each request has a 10-second
+timeout and a scan can consume at most 10 MB. Ordinary page links are ignored.
+JavaScript is analyzed statically and never executed; authenticated pages do not
+share browser cookies.
+
+All valid discovered HTTP(S) hostname/IP dependencies are enabled automatically.
+A successful edit replaces the previous discovery set while retaining enabled
+state and stable ids for destinations that remain. A failed scan persists and
+applies only the parent rule. DNS Refresh resolves existing parents and children
+without rescanning page content.
+
+Before native reconciliation, equivalent routes to the same CIDR/interface are
+de-duplicated. An exact CIDR requested through different interfaces is excluded,
+removed if previously managed, and reported on every affected parent/sub-rule;
+other non-conflicting routes still apply.
 
 ## Testing
 
@@ -234,6 +271,8 @@ mode) to check gateway flags and interface encoding without mutating routes.
 ## Known limitations
 
 - Hostname → IP: CDN/shared IPs may mis-route unrelated hosts.
+- Dependency discovery is static: computed runtime URLs, browser-only requests,
+  authenticated content, and URLs hidden by obfuscated JavaScript may be missed.
 - `resolveHost` uses system DNS (interface-scoped DNS reserved for later).
 - Helper install needs code signing + user Login Items approval.
 - No path-level URL routing.
@@ -246,6 +285,8 @@ mode) to check gateway flags and interface encoding without mutating routes.
 | Privilege | Helper + XPC + SMAppService | Persistent, least privilege |
 | Service order | Unchanged | Specific routes override default |
 | URL handling | Hostname only | No TLS MITM |
+| URL dependencies | Static HTML/JS scan on Save | Finds related hosts without intercepting browser traffic |
+| Route conflicts | Block exact CIDR across interfaces | macOS cannot install one destination through two gateways |
 | Helper embed | Build-phase `swiftc` | Avoid fragile extra Xcode target with Flutter/Pods |
 
 ## Feature status
@@ -259,12 +300,14 @@ mode) to check gateway flags and interface encoding without mutating routes.
 | Destination parser + resolve | Done |
 | Privileged helper + XPC + embed | Done (signing TBD per machine) |
 | Route reconcile | Done |
+| URL dependency discovery + sub-rules | Done |
 | Desktop UI | Done |
 | Windows | Not started |
 | IPv6 | Not started |
 
 ## Changelog
 
+- **2026-09-17** — Added automatic URL dependency discovery and persisted Sub-rules. URL Save now applies the parent route, scans HTML/inline JS/same-origin JS within bounded limits, resolves and applies discovered hosts, exposes per-child toggles and status, preserves child choices on resave, and falls back to the parent on scan failure. Route planning now de-duplicates equivalent CIDRs and blocks exact cross-interface conflicts with diagnostics. Existing JSON remains backward compatible.
 - **2026-09-17** — Restyled the custom Close / Minimize / Zoom controls for the current macOS design language with an adaptive blurred glass capsule, dimensional color treatment, clear symbols, and hover/press motion; native window actions are unchanged.
 - **2026-09-17** — Fixed false `enabled` helper status and eight-second timeouts with a live XPC health check, immediate XPC error completion, and a working Install / Repair flow that reapplies rules. Fixed Scrollbar controller attachment, moved theme switching exclusively to Settings, and added custom Flutter Close / Minimize / Zoom controls backed by the native MethodChannel.
 - **2026-09-17** — Rebuilt the desktop UI from approved design 3: fixed-size tabbed layout, independent Rules and Networks scrolling, Settings theme switch, and in-app Diagnostics panel. The dark theme primary color is now NetPilot green while surfaces remain neutral graphite.
