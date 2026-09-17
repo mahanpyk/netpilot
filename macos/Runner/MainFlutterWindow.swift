@@ -16,6 +16,7 @@ class MainFlutterWindow: NSWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
     NetPilotPlugin.register(with: flutterViewController.registrar(forPlugin: "NetPilotPlugin"))
+    AppRoutingPlugin.register(with: flutterViewController.registrar(forPlugin: "AppRoutingPlugin"))
 
     super.awakeFromNib()
   }

@@ -7,21 +7,25 @@ import '../../core/models/network_interface_info.dart';
 import '../../core/models/routing_rule.dart';
 import '../../core/platform/network_platform.dart';
 import '../network_interfaces/presentation/interface_card.dart';
+import '../app_routing/domain/app_routing_controller.dart';
+import '../app_routing/presentation/apps_view.dart';
 import '../routing_rules/domain/netpilot_controller.dart';
 import '../routing_rules/presentation/rule_editor_sheet.dart';
 import '../routing_rules/presentation/rule_tile.dart';
 
-enum _Tab { rules, networks, settings }
+enum _Tab { rules, apps, networks, settings }
 
 class HomePage extends StatefulWidget {
   const HomePage({
     super.key,
     required this.controller,
+    required this.appRoutingController,
     required this.themeMode,
     required this.onThemeChanged,
   });
 
   final NetPilotController controller;
+  final AppRoutingController appRoutingController;
   final ThemeMode themeMode;
   final ValueChanged<bool> onThemeChanged;
 
@@ -37,11 +41,13 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     c.addListener(_onChange);
+    widget.appRoutingController.addListener(_onChange);
   }
 
   @override
   void dispose() {
     c.removeListener(_onChange);
+    widget.appRoutingController.removeListener(_onChange);
     super.dispose();
   }
 
@@ -89,6 +95,9 @@ class _HomePageState extends State<HomePage> {
                         _Tab.rules => _RulesView(
                           controller: c,
                           onEdit: (rule) => _openEditor(rule: rule),
+                        ),
+                        _Tab.apps => AppsView(
+                          controller: widget.appRoutingController,
                         ),
                         _Tab.networks => _NetworksView(
                           interfaces: c.interfaces,
@@ -158,6 +167,11 @@ class _TopBar extends StatelessWidget {
               value: _Tab.rules,
               icon: Icon(Icons.rule),
               label: Text('Rules'),
+            ),
+            ButtonSegment(
+              value: _Tab.apps,
+              icon: Icon(Icons.apps),
+              label: Text('Apps'),
             ),
             ButtonSegment(
               value: _Tab.networks,

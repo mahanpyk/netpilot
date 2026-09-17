@@ -9,6 +9,8 @@ NetPilot helps developers who are connected to **Wi‑Fi (internet)** and **comp
 1. See currently active network interfaces.
 2. Define destination rules (hostname / URL / IP / CIDR).
 3. Force those destinations out the chosen LAN interface via specific routes — without flipping service order.
+4. Pin all IPv4 TCP/UDP traffic from selected signed macOS applications to a
+   physical Wi-Fi or Ethernet interface with per-rule block/fallback behavior.
 
 ## Scope (MVP / v1)
 
@@ -18,7 +20,8 @@ NetPilot helps developers who are connected to **Wi‑Fi (internet)** and **comp
 | IPv4 | IPv6 |
 | Hostname, URL (hostname only), IPv4, CIDR | URL path-based routing |
 | Route reconcile via privileged helper | TLS MITM / HTTPS path inspection |
-| Local rule persistence | Cloud sync / accounts |
+| Local destination and application rule persistence | Cloud sync / accounts |
+| Per-app TCP/UDP (including QUIC) transparent relay | ICMP, raw IP, IPv6, TLS inspection |
 | Simple desktop UI | Tray-only / menubar-only app |
 
 ## Architecture overview
@@ -30,6 +33,15 @@ Flutter UI
        → NetworkInventoryService (SystemConfiguration)
        → HelperXPCClient → NetPilotHelper (SMAppService / NSXPC)
             → /sbin/route (fixed argv only)
+```
+
+```text
+Apps tab → AppRoutingController → appRouting Method/Event channels
+  → AppInspector (code-signing integration gate)
+  → OSSystemExtensionManager + NETransparentProxyManager
+  → NetPilotTransparentProxy.systemextension
+       → exact signing identifier + Team ID match
+       → NWConnection with requiredInterface (TCP/UDP opaque relay)
 ```
 
 ```mermaid
@@ -59,9 +71,11 @@ netpilot_desktop/
 │   │   └── theme.dart
 │   ├── core/
 │   │   ├── models/
+│   │   │   ├── app_routing_rule.dart
 │   │   │   ├── network_interface_info.dart
 │   │   │   └── routing_rule.dart
 │   │   ├── platform/
+│   │   │   ├── app_routing_platform.dart
 │   │   │   └── network_platform.dart
 │   │   └── utils/
 │   │       ├── destination_parser.dart
@@ -70,6 +84,10 @@ netpilot_desktop/
 │   └── features/
 │       ├── home/
 │       │   └── home_page.dart
+│       ├── app_routing/
+│       │   ├── data/app_rules_repository.dart
+│       │   ├── domain/app_routing_controller.dart
+│       │   └── presentation/apps_view.dart
 │       ├── network_interfaces/
 │       │   └── presentation/interface_card.dart
 │       └── routing_rules/
@@ -96,17 +114,31 @@ netpilot_desktop/
     │   ├── Info.plist
     │   ├── NetPilotHelper.entitlements
     │   └── com.netpilot.netpilotDesktop.helper.plist
+    ├── NetPilotTransparentProxy/   # System Extension target
+    │   ├── TransparentProxyProvider.swift
+    │   ├── FlowRelay.swift
+    │   ├── AppIdentityResolver.swift
+    │   ├── InterfaceResolver.swift
+    │   ├── AppRoutingConfig.swift
+    │   ├── main.swift
+    │   ├── Info.plist
+    │   └── NetPilotTransparentProxy.entitlements
+    ├── IntegrationTests/APP_ROUTING.md  # signed real-Mac acceptance gate
     ├── Runner/
     │   ├── MainFlutterWindow.swift  # Registers NetPilotPlugin
     │   ├── NetPilotPlugin.swift
     │   ├── NetworkInventoryService.swift
     │   ├── HelperXPCClient.swift
+    │   ├── AppInspector.swift
+    │   ├── AppRoutingManager.swift
+    │   ├── AppRoutingPlugin.swift
     │   ├── NetPilotShared/
     │   │   ├── NetPilotXPCProtocol.swift
     │   │   ├── RouteSpec.swift
     │   │   └── RouteManager.swift
     │   └── *entitlements            # App Sandbox OFF for MVP networking/helper
     └── RunnerTests/
+        ├── AppRoutingConfigTests.swift
         ├── RunnerTests.swift
         └── RouteManagerTests.swift
 ```
@@ -141,9 +173,22 @@ enabled state, resolved IPv4 addresses, and route status. Sub-rules inherit the
 parent interface and lifecycle. Desired routes carry `tag = netpilot:<ruleId>`;
 sub-rule tags use `netpilot:<parentId>:sub:<subRuleId>`.
 
+### AppRoutingRule
+
+`AppRoutingRule` persists app name/icon/path, bundle identifier, exact main and
+bundled-helper signing identifiers, Team ID, physical interface, enabled state,
+`block`/`fallback` policy, status, and last error. Matching always requires the
+exact signing identifier **and** Team ID; Team ID alone never selects traffic.
+Runtime flow/byte/error metrics are returned separately by the provider.
+
 ## Persistence
 
 - App support dir / `netpilot_rules.json` via `path_provider`
+- App support dir / `netpilot_app_rules.json` stores version 1 application
+  routing state (`masterEnabled` plus rules). A legacy bare rule list still loads.
+- The pending configuration hash is SHA-256 over canonical provider-relevant
+  fields. The applied hash is mirrored in
+  `NETransparentProxyManager.protocolConfiguration.providerConfiguration`.
 - `FileRulesRepository` / `MemoryRulesRepository` (tests)
 - Rule JSON now includes `subRules`, `dependencyScanStatus`, and
   `dependencyScanError`. Missing fields default to an empty/not-applicable scan,
@@ -169,6 +214,23 @@ sub-rule tags use `netpilot:<parentId>:sub:<subRuleId>`.
 ### EventChannel: `com.netpilot.netpilotDesktop/networkEvents`
 
 Emits `{ type: 'interfacesChanged' }` on SCDynamicStore changes.
+
+### MethodChannel: `com.netpilot.netpilotDesktop/appRouting`
+
+| Method | Args | Result |
+|---|---|---|
+| `selectApplication` | — | app descriptor with signing/team/helper identities and icon, or null |
+| `getStatus` | — | extension/proxy status, applied hash, global and per-rule metrics |
+| `requestExtensionActivation` | — | status; may require approval in System Settings |
+| `applyAndRestart` | `{ masterEnabled, rules, configurationHash }` | updated status |
+| `getDiagnostics` | — | bounded `[NetPilot App Routing]` log lines |
+
+### EventChannel: `com.netpilot.netpilotDesktop/appRoutingEvents`
+
+Emits `reconnecting`, `extensionStatusChanged`, and `proxyStatusChanged`
+events. Dart refreshes the native status and runtime metrics after each event.
+While Apps is listening, Runner polls provider status every two seconds; bounded
+provider flow logs are forwarded once into the Runner/Flutter terminal.
 
 ### XPC (app ↔ helper)
 
@@ -207,8 +269,16 @@ reapplies rules after a successful ping.
 
 - App: `com.netpilot.netpilotDesktop`
 - Helper: `com.netpilot.netpilotDesktop.helper`
+- Transparent Proxy System Extension:
+  `com.netpilot.netpilotDesktop.TransparentProxy`
 - Deployment target: **macOS 14.0**
 - App Sandbox disabled in Debug/Release entitlements for MVP (network inventory + helper install)
+- Runner has `com.apple.developer.system-extension.install` and the
+  `app-proxy-provider-systemextension` Network Extension entitlement. The
+  sandboxed System Extension has the same Network Extension entitlement plus
+  network client/server access. A real Apple Developer Team and provisioning
+  profiles containing this entitlement are mandatory for signed install/run;
+  no Team ID or machine-local signing identity is committed.
 - The native title bar and traffic-light controls are hidden. Flutter renders
   working Close / Minimize / Zoom controls through `windowAction`. The controls
   use a compact Liquid Glass-inspired capsule with adaptive light/dark material,
@@ -216,7 +286,7 @@ reapplies rules after a successful ping.
 
 ## UI map
 
-- Home: 1180×760 initial desktop window (980×640 minimum) with Rules / Networks / Settings tabs;
+- Home: 1180×760 initial desktop window (980×640 minimum) with Rules / Apps / Networks / Settings tabs;
   each tab owns its scrollable content. Rules includes a collapsible Diagnostics
   panel; Settings contains the light/dark theme switch. Dark mode is default
   with green primary actions on neutral graphite surfaces.
@@ -229,6 +299,33 @@ reapplies rules after a successful ping.
   exceptions to the `flutter run` terminal with the `[NetPilot]` prefix.
 - Dependency discovery writes scanned URLs, discovered hosts, failures, and
   route conflicts to the terminal with the same prefix.
+- Apps shows extension/proxy state, master switch, signed `.app` picker,
+  physical interface and block/fallback editors, helper count, per-rule flow and
+  byte metrics, errors, Pending Changes, and manual **Apply & Restart Proxy**.
+
+## Per-app transparent proxy
+
+`AppInspector` is the first integration gate: it uses Security.framework to
+extract an app's exact signing identifier and Team ID and discovers signed
+`.app`/`.xpc` helpers under standard bundle locations. A rule is not created if
+this metadata is unavailable. PID matching and privileged shell fallbacks are
+forbidden.
+
+The System Extension receives outbound IPv4 TCP and UDP flows. Unselected flows
+return `false` to macOS. Selected flows are relayed without payload inspection
+through `NWConnection`; `NWParameters.requiredInterface` pins each connection
+to the chosen active Wi-Fi or Ethernet interface. TCP streams and UDP datagrams
+(including QUIC transport) are opaque. If an interface is unavailable, `block`
+closes the flow with a network-unavailable error and `fallback` returns `false`.
+App matching takes precedence over destination routes because selected relay
+connections explicitly require their interface; other apps continue to use the
+normal routing table.
+
+Edits persist immediately but do not change live traffic. Apply validates
+signing identifiers and physical interfaces, blocks one signing identifier from
+targeting different interfaces, mirrors the configuration into Network
+Extension preferences, and restarts the proxy. Existing proxy flows can reconnect.
+Logs contain identity/interface/protocol/decision/errors but never payload data.
 
 ## URL dependency discovery
 
@@ -264,7 +361,10 @@ flutter test
 flutter build macos --debug
 ```
 
-XCTest: `RouteSpec` validation + `RouteManager` reconcile argv (`macos/RunnerTests/RouteManagerTests.swift`).
+XCTest: `RouteSpec` validation + `RouteManager` reconcile argv and per-app exact
+identity/helper matching (`AppRoutingConfigTests`). To compile before a Team and
+profile are configured, use
+`xcodebuild ... CODE_SIGNING_ALLOWED=NO build`; this does not exercise install.
 The route parser regression uses `/sbin/route -n -d -v get` (read-only debug
 mode) to check gateway flags and interface encoding without mutating routes.
 
@@ -275,6 +375,13 @@ mode) to check gateway flags and interface encoding without mutating routes.
   authenticated content, and URLs hidden by obfuscated JavaScript may be missed.
 - `resolveHost` uses system DNS (interface-scoped DNS reserved for later).
 - Helper install needs code signing + user Login Items approval.
+- System Extension activation and end-to-end TCP/UDP/QUIC egress verification
+  require an Apple Development/Developer ID certificate and provisioning
+  profiles with Network Extension approval. The current machine has no valid
+  identity, so only the unsigned compile gate and unit tests can run here.
+- Per-app DNS is best effort because system-daemon DNS cannot always be
+  attributed to the originating app. ICMP/raw IP, IPv6, standalone scripts and
+  executables, and VPN/`utun` stacking are outside this phase.
 - No path-level URL routing.
 
 ## Architecture decisions
@@ -288,6 +395,10 @@ mode) to check gateway flags and interface encoding without mutating routes.
 | URL dependencies | Static HTML/JS scan on Save | Finds related hosts without intercepting browser traffic |
 | Route conflicts | Block exact CIDR across interfaces | macOS cannot install one destination through two gateways |
 | Helper embed | Build-phase `swiftc` | Avoid fragile extra Xcode target with Flutter/Pods |
+| Per-app routing | `NETransparentProxyProvider` System Extension | Supports unmanaged personal Macs; App Proxy configuration otherwise requires MDM |
+| App identity | Exact signing identifier + Team ID | Stable identity without unsafe PID-only matching |
+| Per-app egress | `NWConnection.requiredInterface` | Pins TCP/UDP relay connections to physical Wi-Fi/Ethernet |
+| App changes | Explicit Apply & Restart | Keeps edits pending and makes flow reevaluation visible |
 
 ## Feature status
 
@@ -301,12 +412,14 @@ mode) to check gateway flags and interface encoding without mutating routes.
 | Privileged helper + XPC + embed | Done (signing TBD per machine) |
 | Route reconcile | Done |
 | URL dependency discovery + sub-rules | Done |
+| Per-app UI, persistence, native bridge, System Extension | Done (signed integration pending Team/profile) |
 | Desktop UI | Done |
 | Windows | Not started |
 | IPv6 | Not started |
 
 ## Changelog
 
+- **2026-09-17** — Added Phase 2 per-app split tunneling: Apps UI and versioned persistence, pending/applied hashes, signed `.app` and helper inspection, conflict/physical-interface validation, System Extension activation/status channels, and a `NETransparentProxyProvider` target that matches exact app identity and relays opaque IPv4 TCP/UDP/QUIC with `NWParameters.requiredInterface`. Added block/fallback policies, per-rule flow/byte/error diagnostics, manual Apply & Restart, host/extension entitlements, Dart tests, and Swift identity matching tests. Unsigned native compilation passes; signed installation and live egress testing remain gated on an Apple Team/profile with Network Extension permission.
 - **2026-09-17** — Added automatic URL dependency discovery and persisted Sub-rules. URL Save now applies the parent route, scans HTML/inline JS/same-origin JS within bounded limits, resolves and applies discovered hosts, exposes per-child toggles and status, preserves child choices on resave, and falls back to the parent on scan failure. Route planning now de-duplicates equivalent CIDRs and blocks exact cross-interface conflicts with diagnostics. Existing JSON remains backward compatible.
 - **2026-09-17** — Restyled the custom Close / Minimize / Zoom controls for the current macOS design language with an adaptive blurred glass capsule, dimensional color treatment, clear symbols, and hover/press motion; native window actions are unchanged.
 - **2026-09-17** — Fixed false `enabled` helper status and eight-second timeouts with a live XPC health check, immediate XPC error completion, and a working Install / Repair flow that reapplies rules. Fixed Scrollbar controller attachment, moved theme switching exclusively to Settings, and added custom Flutter Close / Minimize / Zoom controls backed by the native MethodChannel.
