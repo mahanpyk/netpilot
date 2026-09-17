@@ -153,6 +153,7 @@ See `lib/core/models/routing_rule.dart`. Desired routes carry `tag = netpilot:<r
 | `getHelperStatus` | — | `{ installed, enabled, status, message? }` |
 | `installHelper` | — | status map (+ `ok` when possible) |
 | `reconcileRoutes` | `{ desired: List<RouteSpec> }` | `{ ok, added, removed, errors }` |
+| `windowAction` | `{ action: close, minimize, or zoom }` | — |
 
 ### EventChannel: `com.netpilot.netpilotDesktop/networkEvents`
 
@@ -179,12 +180,17 @@ match them regardless of the default interface. Do not combine a gateway with
 
 Runner build phase **Embed NetPilot Helper** runs `macos/scripts/embed_helper.sh`, which `swiftc`-compiles helper sources into the app bundle and copies the launchd plist. Install at runtime via `SMAppService.daemon(plistName:)`.
 
-Requires matching Team ID signatures on app + helper for real privileged install. Without signing, inventory + UI work; apply may fail until Login Items / signing are configured.
+Requires matching Team ID signatures on app + helper for real privileged install.
+The build script embeds the helper Info.plist and signs the binary with its
+entitlements whenever Xcode provides a signing identity; signing failures stop
+the build. Without an Apple Development identity, macOS rejects the daemon with
+`OS_REASON_CODESIGNING`; inventory + UI still work but routes cannot be applied.
 
-Native helper changes require a full app rebuild and restart of the registered
-helper process; Flutter hot reload/restart does not replace a running launchd
-helper. If a rebuilt app still reports the old behavior, restart macOS to load
-the updated helper from its registered app bundle.
+Native helper changes require a full app rebuild. Helper status includes a live
+XPC ping, so a registered but unreachable daemon is reported as `unreachable`
+instead of `enabled`. Settings exposes Install / Repair, which unregisters a
+stale enabled service, registers the helper from the current app bundle, and
+reapplies rules after a successful ping.
 
 ## Signing & entitlements
 
@@ -192,12 +198,14 @@ the updated helper from its registered app bundle.
 - Helper: `com.netpilot.netpilotDesktop.helper`
 - Deployment target: **macOS 14.0**
 - App Sandbox disabled in Debug/Release entitlements for MVP (network inventory + helper install)
-- The native title bar and traffic-light controls are hidden; Flutter content
-  fills the window from the top edge.
+- The native title bar and traffic-light controls are hidden. Flutter renders
+  working Close / Minimize / Zoom controls through `windowAction`. The controls
+  use a compact Liquid Glass-inspired capsule with adaptive light/dark material,
+  gloss, depth, and hover/press feedback.
 
 ## UI map
 
-- Home: fixed 1180×760 desktop window with Rules / Networks / Settings tabs;
+- Home: 1180×760 initial desktop window (980×640 minimum) with Rules / Networks / Settings tabs;
   each tab owns its scrollable content. Rules includes a collapsible Diagnostics
   panel; Settings contains the light/dark theme switch. Dark mode is default
   with green primary actions on neutral graphite surfaces.
@@ -257,6 +265,8 @@ mode) to check gateway flags and interface encoding without mutating routes.
 
 ## Changelog
 
+- **2026-09-17** — Restyled the custom Close / Minimize / Zoom controls for the current macOS design language with an adaptive blurred glass capsule, dimensional color treatment, clear symbols, and hover/press motion; native window actions are unchanged.
+- **2026-09-17** — Fixed false `enabled` helper status and eight-second timeouts with a live XPC health check, immediate XPC error completion, and a working Install / Repair flow that reapplies rules. Fixed Scrollbar controller attachment, moved theme switching exclusively to Settings, and added custom Flutter Close / Minimize / Zoom controls backed by the native MethodChannel.
 - **2026-09-17** — Rebuilt the desktop UI from approved design 3: fixed-size tabbed layout, independent Rules and Networks scrolling, Settings theme switch, and in-app Diagnostics panel. The dark theme primary color is now NetPilot green while surfaces remain neutral graphite.
 - **2026-09-17** — Added `[NetPilot]` route reconciliation diagnostics to the Flutter terminal, hid the native macOS title bar and traffic-light controls, changed the dark palette to neutral graphite with a muted blue accent, and bumped the app build to 1.0.1+2 so macOS refreshes the Dock icon.
 - **2026-09-17** — Replaced the macOS app icon with a custom NetPilot route-and-arrow mark and generated all required AppIcon sizes (16–1024 px).

@@ -89,8 +89,10 @@ class NetPilotController extends ChangeNotifier {
   Future<void> installHelper() async {
     _busy = true;
     notifyListeners();
+    var shouldApply = false;
     try {
       _helperStatus = await _platform.installHelper();
+      shouldApply = _helperStatus.enabled;
       _bannerError = _helperStatus.enabled
           ? null
           : (_helperStatus.message ??
@@ -100,6 +102,9 @@ class NetPilotController extends ChangeNotifier {
     } finally {
       _busy = false;
       notifyListeners();
+    }
+    if (shouldApply) {
+      await applyAll();
     }
   }
 

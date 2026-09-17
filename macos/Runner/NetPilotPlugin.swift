@@ -42,6 +42,20 @@ final class NetPilotPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
       let args = call.arguments as? [String: Any]
       let desired = (args?["desired"] as? [[String: Any]]) ?? []
       result(helper.reconcile(desired: desired))
+    case "windowAction":
+      let args = call.arguments as? [String: Any]
+      switch args?["action"] as? String {
+      case "close":
+        NSApp.keyWindow?.performClose(nil)
+      case "minimize":
+        NSApp.keyWindow?.miniaturize(nil)
+      case "zoom":
+        NSApp.keyWindow?.zoom(nil)
+      default:
+        result(FlutterError(code: "bad_action", message: "Unknown window action", details: nil))
+        return
+      }
+      result(nil)
     case "applyRoutes", "removeRoutes":
       // Unified through reconcile for MVP.
       result([

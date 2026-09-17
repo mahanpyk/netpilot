@@ -1,4 +1,7 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/models/network_interface_info.dart';
 import '../../core/models/routing_rule.dart';
@@ -65,10 +68,8 @@ class _HomePageState extends State<HomePage> {
             children: [
               _TopBar(
                 tab: _tab,
-                isDark: widget.themeMode == ThemeMode.dark,
                 busy: c.busy,
                 onTab: (value) => setState(() => _tab = value),
-                onTheme: widget.onThemeChanged,
                 onRefresh: c.refreshResolutions,
               ),
               const SizedBox(height: 22),
@@ -119,18 +120,14 @@ class _HomePageState extends State<HomePage> {
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.tab,
-    required this.isDark,
     required this.busy,
     required this.onTab,
-    required this.onTheme,
     required this.onRefresh,
   });
 
   final _Tab tab;
-  final bool isDark;
   final bool busy;
   final ValueChanged<_Tab> onTab;
-  final ValueChanged<bool> onTheme;
   final VoidCallback onRefresh;
 
   @override
@@ -138,6 +135,8 @@ class _TopBar extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return Row(
       children: [
+        const _WindowControls(),
+        const SizedBox(width: 18),
         Container(
           width: 38,
           height: 38,
@@ -176,13 +175,6 @@ class _TopBar extends StatelessWidget {
           onSelectionChanged: (selection) => onTab(selection.first),
         ),
         const Spacer(),
-        IconButton(
-          tooltip: isDark ? 'Use light theme' : 'Use dark theme',
-          onPressed: () => onTheme(!isDark),
-          icon: Icon(
-            isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-          ),
-        ),
         IconButton(
           tooltip: 'Refresh DNS & apply',
           onPressed: busy ? null : onRefresh,
@@ -254,7 +246,7 @@ class _RulesView extends StatelessWidget {
                   ? const _EmptyRules()
                   : Scrollbar(
                       child: ListView.separated(
-                        primary: false,
+                        primary: true,
                         itemCount: rules.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 8),
                         itemBuilder: (context, index) {
@@ -323,7 +315,7 @@ class _NetworksView extends StatelessWidget {
                   ? const Center(child: Text('No active IPv4 interfaces'))
                   : Scrollbar(
                       child: ListView.separated(
-                        primary: false,
+                        primary: true,
                         itemCount: active.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 12),
                         itemBuilder: (context, index) =>
@@ -389,16 +381,201 @@ class _SettingsView extends StatelessWidget {
                   helperStatus.message ?? 'Status: ${helperStatus.status}',
                 ),
                 trailing: helperStatus.enabled
-                    ? Chip(
-                        label: const Text('Enabled'),
-                        backgroundColor: colors.primaryContainer,
-                      )
-                    : FilledButton(
+                    ? OutlinedButton.icon(
                         onPressed: busy ? null : onInstall,
-                        child: const Text('Install'),
+                        icon: const Icon(Icons.build_outlined),
+                        label: const Text('Repair'),
+                      )
+                    : FilledButton.icon(
+                        onPressed: busy ? null : onInstall,
+                        icon: const Icon(Icons.build_outlined),
+                        label: const Text('Install / Repair'),
                       ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WindowControls extends StatelessWidget {
+  const _WindowControls();
+
+  static const _channel = MethodChannel('com.netpilot.netpilotDesktop/network');
+
+  Future<void> _run(String action) {
+    return _channel.invokeMethod<void>('windowAction', {'action': action});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final radius = BorderRadius.circular(18);
+    return ClipRRect(
+      borderRadius: radius,
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          padding: const EdgeInsets.all(5),
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: isDark
+                  ? const [Color(0x3DFFFFFF), Color(0x147F8A93)]
+                  : const [Color(0xCFFFFFFF), Color(0x70E2E8EA)],
+            ),
+            border: Border.all(
+              color: isDark ? const Color(0x32FFFFFF) : const Color(0x9FFFFFFF),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.12),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
+              ),
+              BoxShadow(
+                color: Colors.white.withValues(alpha: isDark ? 0.06 : 0.7),
+                blurRadius: 1,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _WindowButton(
+                tooltip: 'Close',
+                color: const Color(0xFFFF5B57),
+                icon: Icons.close_rounded,
+                onPressed: () => _run('close'),
+              ),
+              const SizedBox(width: 5),
+              _WindowButton(
+                tooltip: 'Minimize',
+                color: const Color(0xFFFFBD2E),
+                icon: Icons.remove_rounded,
+                onPressed: () => _run('minimize'),
+              ),
+              const SizedBox(width: 5),
+              _WindowButton(
+                tooltip: 'Zoom',
+                color: const Color(0xFF29C941),
+                icon: Icons.open_in_full_rounded,
+                onPressed: () => _run('zoom'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WindowButton extends StatefulWidget {
+  const _WindowButton({
+    required this.tooltip,
+    required this.color,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final Color color;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  State<_WindowButton> createState() => _WindowButtonState();
+}
+
+class _WindowButtonState extends State<_WindowButton> {
+  bool _hovered = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: widget.tooltip,
+      waitDuration: const Duration(milliseconds: 500),
+      child: Semantics(
+        button: true,
+        label: widget.tooltip,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() {
+            _hovered = false;
+            _pressed = false;
+          }),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onPressed,
+            onTapDown: (_) => setState(() => _pressed = true),
+            onTapUp: (_) => setState(() => _pressed = false),
+            onTapCancel: () => setState(() => _pressed = false),
+            child: AnimatedScale(
+              scale: _pressed ? 0.88 : (_hovered ? 1.06 : 1),
+              duration: const Duration(milliseconds: 120),
+              curve: Curves.easeOutCubic,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOutCubic,
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color.lerp(
+                        widget.color,
+                        Colors.white,
+                        _hovered ? 0.38 : 0.24,
+                      )!,
+                      Color.lerp(
+                        widget.color,
+                        Colors.black,
+                        _pressed ? 0.18 : 0.08,
+                      )!,
+                    ],
+                  ),
+                  border: Border.all(
+                    color: Colors.white.withValues(
+                      alpha: _hovered ? 0.62 : 0.34,
+                    ),
+                    width: 0.8,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: widget.color.withValues(
+                        alpha: _hovered ? 0.42 : 0.22,
+                      ),
+                      blurRadius: _hovered ? 10 : 5,
+                      offset: const Offset(0, 2),
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 2,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
+                ),
+                child: AnimatedOpacity(
+                  opacity: _hovered ? 1 : 0.78,
+                  duration: const Duration(milliseconds: 140),
+                  child: Icon(
+                    widget.icon,
+                    size: widget.tooltip == 'Zoom' ? 9 : 12,
+                    color: Colors.black.withValues(alpha: 0.68),
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),

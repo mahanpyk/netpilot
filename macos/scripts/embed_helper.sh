@@ -26,6 +26,10 @@ xcrun swiftc \
   -O \
   -target "${ARCH}-apple-macos14.0" \
   -framework Foundation \
+  -Xlinker -sectcreate \
+  -Xlinker __TEXT \
+  -Xlinker __info_plist \
+  -Xlinker "${HELPER_SRC}/Info.plist" \
   -o "$HELPER_OUT" \
   "${SOURCES[@]}"
 
@@ -33,7 +37,11 @@ cp "${HELPER_SRC}/com.netpilot.netpilotDesktop.helper.plist" \
   "${LAUNCHD_DIR}/com.netpilot.netpilotDesktop.helper.plist"
 
 if [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ] && [ "${EXPANDED_CODE_SIGN_IDENTITY}" != "-" ]; then
-  codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" --timestamp=none "$HELPER_OUT" || true
+  codesign --force \
+    --sign "${EXPANDED_CODE_SIGN_IDENTITY}" \
+    --entitlements "${HELPER_SRC}/NetPilotHelper.entitlements" \
+    --timestamp=none \
+    "$HELPER_OUT"
 fi
 
 echo "Embedded NetPilotHelper at $HELPER_OUT"
