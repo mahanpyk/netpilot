@@ -12,16 +12,14 @@ import '../data/rules_repository.dart';
 
 class NetPilotController extends ChangeNotifier {
   NetPilotController({
-    required NetworkPlatform platform,
-    required RulesRepository rulesRepository,
+    required this._platform,
+    required this._rulesRepository,
     DestinationParser? parser,
     RouteReconciler? reconciler,
     Uuid? uuid,
-  })  : _platform = platform,
-        _rulesRepository = rulesRepository,
-        _parser = parser ?? const DestinationParser(),
-        _reconciler = reconciler ?? const RouteReconciler(),
-        _uuid = uuid ?? const Uuid();
+  }) : _parser = parser ?? const DestinationParser(),
+       _reconciler = reconciler ?? const RouteReconciler(),
+       _uuid = uuid ?? const Uuid();
 
   final NetworkPlatform _platform;
   final RulesRepository _rulesRepository;
@@ -96,7 +94,7 @@ class NetPilotController extends ChangeNotifier {
       _bannerError = _helperStatus.enabled
           ? null
           : (_helperStatus.message ??
-              'Helper not enabled. Approve Login Items in System Settings.');
+                'Helper not enabled. Approve Login Items in System Settings.');
     } catch (e) {
       _bannerError = e.toString();
     } finally {
@@ -142,7 +140,9 @@ class NetPilotController extends ChangeNotifier {
       ips = [parsed.normalized];
     }
 
-    final existingIndex = id == null ? -1 : _rules.indexWhere((r) => r.id == id);
+    final existingIndex = id == null
+        ? -1
+        : _rules.indexWhere((r) => r.id == id);
     final rule = RoutingRule(
       id: id ?? _uuid.v4(),
       label: label,
@@ -227,49 +227,61 @@ class NetPilotController extends ChangeNotifier {
       await refreshHelperStatus();
       String gatewayFor(RoutingRule rule) {
         final iface = _interfaces.cast<NetworkInterfaceInfo?>().firstWhere(
-              (i) => i?.interfaceName == rule.interfaceId || i?.id == rule.interfaceId,
-              orElse: () => null,
-            );
+          (i) =>
+              i?.interfaceName == rule.interfaceId || i?.id == rule.interfaceId,
+          orElse: () => null,
+        );
         return iface?.gateway ?? '';
       }
 
-      final desired = _reconciler.desiredFromRules(
-        _rules,
-        gatewayFor: (rule) {
-          final g = gatewayFor(rule);
-          return g.isEmpty ? '' : g;
-        },
-      ).map((r) {
-        // Empty gateway → null for native
-        if (r.gateway == null || r.gateway!.isEmpty) {
-          return DesiredRoute(
-            destinationCidr: r.destinationCidr,
-            interfaceName: r.interfaceName,
-            ruleId: r.ruleId,
-          );
-        }
-        return r;
-      }).toList();
+      final desired = _reconciler
+          .desiredFromRules(
+            _rules,
+            gatewayFor: (rule) {
+              final g = gatewayFor(rule);
+              return g.isEmpty ? '' : g;
+            },
+          )
+          .map((r) {
+            // Empty gateway → null for native
+            if (r.gateway == null || r.gateway!.isEmpty) {
+              return DesiredRoute(
+                destinationCidr: r.destinationCidr,
+                interfaceName: r.interfaceName,
+                ruleId: r.ruleId,
+              );
+            }
+            return r;
+          })
+          .toList();
 
       if (!_helperStatus.enabled && desired.isNotEmpty) {
+        debugPrint(
+          '[NetPilot] Route apply skipped: helper is not enabled. '
+          'desired=${desired.map((route) => route.toMap()).toList()}',
+        );
         _rules = _rules
             .map(
               (r) => r.enabled
                   ? r.copyWith(
                       status: RuleStatus.error,
-                      lastError:
-                          'Helper not enabled. Install/approve the NetPilot helper.',
+                      lastError: 'Helper not enabled. Install/approve the NetPilot helper.',
                     )
                   : r,
             )
             .toList();
-        _bannerError =
-            'Helper not enabled. Install it to apply routes (Login Items approval may be required).';
+        _bannerError = 'Helper not enabled. Install it to apply routes (Login Items approval may be required).';
         notifyListeners();
         return;
       }
 
       final result = await _platform.reconcileRoutes(desired);
+      debugPrint(
+        '[NetPilot] Route reconcile: '
+        'desired=${desired.map((route) => route.toMap()).toList()} '
+        'added=${result.added} removed=${result.removed} '
+        'ok=${result.ok} errors=${result.errors}',
+      );
       final byRule = <String, List<String>>{};
       for (final d in desired) {
         byRule.putIfAbsent(d.ruleId, () => []).add(d.destinationCidr);
@@ -277,7 +289,10 @@ class NetPilotController extends ChangeNotifier {
 
       _rules = _rules.map((rule) {
         if (!rule.enabled) {
-          return rule.copyWith(status: RuleStatus.pending, clearLastError: true);
+          return rule.copyWith(
+            status: RuleStatus.pending,
+            clearLastError: true,
+          );
         }
         if (rule.kind == DestinationKind.hostname ||
             rule.kind == DestinationKind.url) {
@@ -293,23 +308,25 @@ class NetPilotController extends ChangeNotifier {
                 : result.errors.join('; '),
           );
         }
-        return rule.copyWith(
-          status: RuleStatus.applied,
-          clearLastError: true,
-        );
+        return rule.copyWith(status: RuleStatus.applied, clearLastError: true);
       }).toList();
       await _rulesRepository.save(_rules);
       _bannerError = result.ok
           ? null
           : (result.errors.isEmpty
-              ? 'Failed to apply routes'
-              : result.errors.join('; '));
-    } catch (e) {
-      _bannerError = e.toString();
+                ? 'Failed to apply routes'
+                : result.errors.join('; '));
+    } catch (error, stackTrace) {
+      debugPrint('[NetPilot] Route reconcile threw: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      _bannerError = error.toString();
       _rules = _rules
           .map(
             (r) => r.enabled
-                ? r.copyWith(status: RuleStatus.error, lastError: e.toString())
+                ? r.copyWith(
+                    status: RuleStatus.error,
+                    lastError: error.toString(),
+                  )
                 : r,
           )
           .toList();

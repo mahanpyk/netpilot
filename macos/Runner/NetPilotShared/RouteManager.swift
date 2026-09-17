@@ -92,21 +92,26 @@ final class RouteManager {
   }
 
   private func addRoute(_ spec: RouteSpec) throws {
-    // Fixed argv only — never interpolate free-form shell strings.
-    var args = ["-n", "add", "-net", spec.destination]
-    if let gateway = spec.gateway, !gateway.isEmpty {
-      args.append(gateway)
-    }
-    args.append(contentsOf: ["-iface", spec.interfaceName])
-    _ = try runner.run("/sbin/route", arguments: args)
+    _ = try runner.run("/sbin/route", arguments: routeArguments("add", spec))
   }
 
   private func deleteRoute(_ spec: RouteSpec) throws {
-    var args = ["-n", "delete", "-net", spec.destination]
+    _ = try runner.run("/sbin/route", arguments: routeArguments("delete", spec))
+  }
+
+  private func routeArguments(_ operation: String, _ spec: RouteSpec) -> [String] {
+    // Fixed argv only — never interpolate free-form shell strings.
+    var args = ["-n", operation, "-net", spec.destination]
     if let gateway = spec.gateway, !gateway.isEmpty {
-      args.append(gateway)
+      // -interface is a direct-route flag, not an interface selector. After
+      // a gateway it makes the interface name parse as a second IP address.
+      // -ifp selects the outgoing interface while preserving RTF_GATEWAY.
+      // The trailing colon makes link_addr parse a BSD interface name.
+      args.append(contentsOf: [gateway, "-ifp", "\(spec.interfaceName):"])
+    } else {
+      args.append(contentsOf: ["-interface", spec.interfaceName])
     }
-    _ = try runner.run("/sbin/route", arguments: args)
+    return args
   }
 
   private func persist() {

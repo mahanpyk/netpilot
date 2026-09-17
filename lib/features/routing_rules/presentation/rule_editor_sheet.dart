@@ -147,8 +147,7 @@ class _RuleEditorSheetState extends State<RuleEditorSheet> {
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
-            // ignore: deprecated_member_use
-            value: _interfaceId,
+            initialValue: _interfaceId,
             decoration: const InputDecoration(labelText: 'Send via interface'),
             items: ifaces
                 .map(

@@ -82,6 +82,7 @@ netpilot_desktop/
 │   ├── netpilot_controller_test.dart
 │   └── widget_test.dart
 └── macos/
+    ├── Runner/Assets.xcassets/AppIcon.appiconset/  # NetPilot routing icon
     ├── scripts/
     │   ├── embed_helper.sh          # Build-phase: compile + embed helper
     │   └── patch_pbxproj.py         # Sanity check for native file refs
@@ -136,6 +137,10 @@ See `lib/core/models/routing_rule.dart`. Desired routes carry `tag = netpilot:<r
 
 - App support dir / `netpilot_rules.json` via `path_provider`
 - `FileRulesRepository` / `MemoryRulesRepository` (tests)
+- `path_provider_foundation` 2.6.0 uses Dart native assets/FFI on macOS;
+  it no longer registers a Flutter plugin or installs a CocoaPod. Flutter
+  generates the native asset build integration; the JSON persistence format
+  and NetPilot's MethodChannel/XPC contracts are unchanged.
 
 ## Platform contracts
 
@@ -163,11 +168,23 @@ Emits `{ type: 'interfacesChanged' }` on SCDynamicStore changes.
 
 **Security:** Destination must be IPv4 CIDR; gateway optional IPv4; interface BSD-like name; tag must start with `netpilot:`. Fixed `/sbin/route` argv only. Managed inventory persisted under `/Library/Application Support/NetPilot/managed_routes.json`.
 
+Route argv: gateway routes use `-net <CIDR> <gateway> -ifp <BSD-name>:`;
+the trailing colon encodes the interface name for macOS `link_addr`. Direct
+routes without a gateway use `-net <CIDR> -interface <BSD-name>`. Add and delete
+use the same selectors. Routes remain unscoped so ordinary app traffic can
+match them regardless of the default interface. Do not combine a gateway with
+`-iface`: macOS parses the following interface name as another IP address.
+
 ## Privileged helper build
 
 Runner build phase **Embed NetPilot Helper** runs `macos/scripts/embed_helper.sh`, which `swiftc`-compiles helper sources into the app bundle and copies the launchd plist. Install at runtime via `SMAppService.daemon(plistName:)`.
 
 Requires matching Team ID signatures on app + helper for real privileged install. Without signing, inventory + UI work; apply may fail until Login Items / signing are configured.
+
+Native helper changes require a full app rebuild and restart of the registered
+helper process; Flutter hot reload/restart does not replace a running launchd
+helper. If a rebuilt app still reports the old behavior, restart macOS to load
+the updated helper from its registered app bundle.
 
 ## Signing & entitlements
 
@@ -175,14 +192,25 @@ Requires matching Team ID signatures on app + helper for real privileged install
 - Helper: `com.netpilot.netpilotDesktop.helper`
 - Deployment target: **macOS 14.0**
 - App Sandbox disabled in Debug/Release entitlements for MVP (network inventory + helper install)
+- The native title bar and traffic-light controls are hidden; Flutter content
+  fills the window from the top edge.
 
 ## UI map
 
-- Home: Interfaces pane + Rules pane
+- Home: fixed 1180×760 desktop window with Rules / Networks / Settings tabs;
+  each tab owns its scrollable content. Rules includes a collapsible Diagnostics
+  panel; Settings contains the light/dark theme switch. Dark mode is default
+  with green primary actions on neutral graphite surfaces.
 - Add/Edit sheet: destination, label, interface, resolve preview, save & apply
 - Helper banner with Install when not enabled
+- Route reconciliation writes desired routes, result counts, errors, and thrown
+  exceptions to the `flutter run` terminal with the `[NetPilot]` prefix.
 
 ## Testing
+
+Toolchain baseline: **Flutter 3.47.4 stable / Dart 3.13.3**. Minimum SDK
+constraints are declared in `pubspec.yaml`; commit `pubspec.lock` for reproducible
+package resolution. CocoaPods and Runner both target macOS 14.0.
 
 ```bash
 PUB_HOSTED_URL=https://pub.dev flutter pub get   # if corporate mirror fails
@@ -192,6 +220,8 @@ flutter build macos --debug
 ```
 
 XCTest: `RouteSpec` validation + `RouteManager` reconcile argv (`macos/RunnerTests/RouteManagerTests.swift`).
+The route parser regression uses `/sbin/route -n -d -v get` (read-only debug
+mode) to check gateway flags and interface encoding without mutating routes.
 
 ## Known limitations
 
@@ -227,5 +257,11 @@ XCTest: `RouteSpec` validation + `RouteManager` reconcile argv (`macos/RunnerTes
 
 ## Changelog
 
+- **2026-09-17** — Rebuilt the desktop UI from approved design 3: fixed-size tabbed layout, independent Rules and Networks scrolling, Settings theme switch, and in-app Diagnostics panel. The dark theme primary color is now NetPilot green while surfaces remain neutral graphite.
+- **2026-09-17** — Added `[NetPilot]` route reconciliation diagnostics to the Flutter terminal, hid the native macOS title bar and traffic-light controls, changed the dark palette to neutral graphite with a muted blue accent, and bumped the app build to 1.0.1+2 so macOS refreshes the Dock icon.
+- **2026-09-17** — Replaced the macOS app icon with a custom NetPilot route-and-arrow mark and generated all required AppIcon sizes (16–1024 px).
+- **2026-09-17** — Added Material light and dark themes; the application defaults to dark mode. Theme-aware surface colors keep cards and form fields readable in both modes.
+- **2026-09-17** — Fixed `route: bad address: en8` by separating gateway routes (`-ifp <name>:`) from direct interface routes (`-interface <name>`), matching add/delete selectors, and adding native argv plus real macOS parser regression tests. All 6 targeted native tests and `flutter build macos --debug` passed; live privileged routing was not exercised. Helper/XPC payloads and persisted route format are unchanged.
+- **2026-09-17** — Upgraded to Flutter 3.47.4 stable / Dart 3.13.3, refreshed package locks and flutter_lints 6, migrated deprecated dropdown initialization and new Dart lint fixes, aligned CocoaPods with macOS 14.0, and regenerated native plugin integration for path_provider_foundation's FFI implementation. Cleared stale generated Swift package references with `flutter clean`. `flutter analyze`, all 11 Flutter tests, and a clean `flutter build macos --debug` passed.
 - **2026-09-17** — MVP implemented: Flutter UI/controller, macOS inventory plugin, privileged helper embed script, handoff docs. `flutter analyze` / `flutter test` / `flutter build macos --debug` verified.
 - **2026-09-17** — Initial handoff drafted; implementation started.
