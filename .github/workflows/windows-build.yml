@@ -82,6 +82,8 @@ jobs:
             /p:DriverSign=Off
           if ($LASTEXITCODE -ne 0) { throw "Driver build failed with exit code $LASTEXITCODE." }
 
+          Copy-Item windows\native\driver\NetPilotWfp.inf $driverOut -Force
+
           & '${{ steps.tools.outputs.inf2cat }}' /driver:$driverOut /os:10_X64
           if ($LASTEXITCODE -ne 0) { throw "Inf2Cat failed with exit code $LASTEXITCODE." }
 
