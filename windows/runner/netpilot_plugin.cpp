@@ -3,8 +3,9 @@
 #include <flutter/event_stream_handler_functions.h>
 #include <flutter/standard_method_codec.h>
 
-#include <iostream>
 #include <filesystem>
+#include <iostream>
+#include <shellapi.h>
 
 namespace {
 
@@ -47,7 +48,8 @@ Map ErrorStatus(const std::string& message) {
 
 bool LaunchMaintenanceRepair() {
   std::wstring module(32768, L'\0');
-  const DWORD size = GetModuleFileNameW(nullptr, module.data(), module.size());
+  const DWORD size = GetModuleFileNameW(
+      nullptr, module.data(), static_cast<DWORD>(module.size()));
   if (!size) return false;
   module.resize(size);
   const auto maintenance =

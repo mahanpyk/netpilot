@@ -393,7 +393,8 @@ void RelayEngine::RelayTcp(SOCKET client) {
                                bool inbound) {
     std::array<char, 32 * 1024> buffer{};
     for (;;) {
-      const int count = recv(source, buffer.data(), buffer.size(), 0);
+      const int count =
+          recv(source, buffer.data(), static_cast<int>(buffer.size()), 0);
       if (count <= 0) break;
       {
         std::scoped_lock lock(mutex_);
@@ -509,13 +510,15 @@ void RelayEngine::RelayUdpSession(sockaddr_in client,
     timeval wait{30, 0};
     if (select(0, &reads, nullptr, nullptr, &wait) <= 0) break;
     if (FD_ISSET(local, &reads)) {
-      const int count = recv(local, buffer.data(), buffer.size(), 0);
+      const int count =
+          recv(local, buffer.data(), static_cast<int>(buffer.size()), 0);
       if (count <= 0 || send(outbound, buffer.data(), count, 0) <= 0) break;
       std::scoped_lock lock(mutex_);
       metrics_[rule_id].bytes_out += count;
     }
     if (FD_ISSET(outbound, &reads)) {
-      const int count = recv(outbound, buffer.data(), buffer.size(), 0);
+      const int count =
+          recv(outbound, buffer.data(), static_cast<int>(buffer.size()), 0);
       if (count <= 0 || send(local, buffer.data(), count, 0) <= 0) break;
       std::scoped_lock lock(mutex_);
       metrics_[rule_id].bytes_in += count;
