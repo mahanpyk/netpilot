@@ -1,0 +1,126 @@
+name: Windows test build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/windows-parity
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.4
+          cache: true
+
+      - name: Enable Windows desktop
+        shell: pwsh
+        run: flutter config --enable-windows-desktop
+
+      - name: Resolve dependencies
+        shell: pwsh
+        run: flutter pub get
+
+      - name: Analyze
+        shell: pwsh
+        run: flutter analyze
+
+      - name: Run Flutter tests
+        shell: pwsh
+        run: flutter test
+
+      - name: Build Windows application and native service
+        shell: pwsh
+        run: flutter build windows --release
+
+      - name: Run native protocol tests
+        shell: pwsh
+        run: ctest --test-dir build/windows/x64 -C Release --output-on-failure
+
+      - name: Locate Windows driver tools
+        id: tools
+        shell: pwsh
+        run: |
+          $msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+            -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe |
+            Select-Object -First 1
+          if (-not $msbuild) { throw 'MSBuild was not found.' }
+
+          $kits = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+          $inf2cat = Get-ChildItem $kits -Filter inf2cat.exe -Recurse |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          $signtool = Get-ChildItem $kits -Filter signtool.exe -Recurse |
+            Where-Object FullName -Match '\\x64\\' |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $inf2cat -or -not $signtool) {
+            throw 'WDK tools (Inf2Cat/SignTool) were not found on the runner.'
+          }
+
+          "msbuild=$msbuild" >> $env:GITHUB_OUTPUT
+          "inf2cat=$($inf2cat.FullName)" >> $env:GITHUB_OUTPUT
+          "signtool=$($signtool.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Build and test-sign WFP driver
+        shell: pwsh
+        run: |
+          $driverOut = Join-Path $PWD 'build\windows\driver\Release'
+          New-Item -ItemType Directory -Force $driverOut | Out-Null
+          & '${{ steps.tools.outputs.msbuild }}' windows\native\driver\NetPilotWfp.vcxproj `
+            /m /p:Configuration=Release /p:Platform=x64 /p:OutDir="$driverOut\" `
+            /p:DriverSign=Off
+          if ($LASTEXITCODE -ne 0) { throw "Driver build failed with exit code $LASTEXITCODE." }
+
+          & '${{ steps.tools.outputs.inf2cat }}' /driver:$driverOut /os:10_X64
+          if ($LASTEXITCODE -ne 0) { throw "Inf2Cat failed with exit code $LASTEXITCODE." }
+
+          $certificate = New-SelfSignedCertificate -Type CodeSigningCert `
+            -Subject 'CN=NetPilot Driver Test' -CertStoreLocation Cert:\CurrentUser\My
+          Get-ChildItem $driverOut -Include *.sys,*.cat -Recurse | ForEach-Object {
+            & '${{ steps.tools.outputs.signtool }}' sign /fd sha256 /sha1 $certificate.Thumbprint /v $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Signing $($_.Name) failed." }
+            & '${{ steps.tools.outputs.signtool }}' verify /pa /v $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Signature verification for $($_.Name) failed." }
+          }
+
+          $destination = Join-Path $PWD 'build\windows\x64\runner\Release\driver'
+          New-Item -ItemType Directory -Force $destination | Out-Null
+          Copy-Item "$driverOut\NetPilotWfp.*" $destination -Force
+
+      - name: Install WiX Toolset
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 4.*
+          wix extension add WixToolset.Bal.wixext/4.* --global
+
+      - name: Build MSI and bootstrapper
+        shell: pwsh
+        run: .\windows\installer\build.ps1 -Configuration Release
+
+      - name: Create portable archive
+        shell: pwsh
+        run: |
+          Compress-Archive -Path build\windows\x64\runner\Release\* `
+            -DestinationPath windows\installer\out\NetPilot-windows-x64-portable.zip -Force
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetPilot-windows-x64-test
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            windows/installer/out/NetPilotSetup.exe
+            windows/installer/out/NetPilot.msi
+            windows/installer/out/NetPilot-windows-x64-portable.zip
