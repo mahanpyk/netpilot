@@ -20,7 +20,6 @@
   <ItemDefinitionGroup>
     <ClCompile><WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><AdditionalIncludeDirectories>$(ProjectDir)..\common;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
     <Link><AdditionalDependencies>Fwpkclnt.lib;Wdmsec.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
-    <Inf><TimeStamp>$(NetPilotInfTimestamp)</TimeStamp></Inf>
   </ItemDefinitionGroup>
   <ItemGroup><ClCompile Include="netpilot_wfp.cpp" /></ItemGroup>
   <ItemGroup><Inf Include="NetPilotWfp.inf" /></ItemGroup>
