@@ -2,6 +2,7 @@
 #define NETPILOT_NATIVE_SERVICE_WFP_POLICY_H_
 
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <fwpmu.h>
 
