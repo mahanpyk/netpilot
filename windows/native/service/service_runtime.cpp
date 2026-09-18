@@ -107,7 +107,8 @@ std::string ProcessPath(DWORD process_id) {
 
 std::filesystem::path ModuleDirectory() {
   std::wstring path(32768, L'\0');
-  const DWORD size = GetModuleFileNameW(nullptr, path.data(), path.size());
+  const DWORD size = GetModuleFileNameW(
+      nullptr, path.data(), static_cast<DWORD>(path.size()));
   path.resize(size);
   std::error_code error;
   return std::filesystem::weakly_canonical(
@@ -115,11 +116,12 @@ std::filesystem::path ModuleDirectory() {
 }
 
 std::wstring Wide(const std::string& value) {
-  const int size = MultiByteToWideChar(CP_UTF8, 0, value.data(), value.size(),
+  const int input_size = static_cast<int>(value.size());
+  const int size = MultiByteToWideChar(CP_UTF8, 0, value.data(), input_size,
                                        nullptr, 0);
   std::wstring output(size, L'\0');
   if (size)
-    MultiByteToWideChar(CP_UTF8, 0, value.data(), value.size(), output.data(),
+    MultiByteToWideChar(CP_UTF8, 0, value.data(), input_size, output.data(),
                         size);
   return output;
 }

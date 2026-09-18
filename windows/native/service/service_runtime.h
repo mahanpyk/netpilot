@@ -9,6 +9,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <iphlpapi.h>
+#include <netioapi.h>
 
 #include "../common/netpilot_protocol.h"
 #include "diagnostics.h"
