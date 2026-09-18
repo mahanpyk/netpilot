@@ -356,7 +356,10 @@ bool ServiceRuntime::ValidateRules(
         return false;
       }
       std::string key = executable.app_id;
-      std::transform(key.begin(), key.end(), key.begin(), ::tolower);
+      std::transform(key.begin(), key.end(), key.begin(),
+                     [](unsigned char value) {
+                       return static_cast<char>(std::tolower(value));
+                     });
       const auto found = owners.find(key);
       if (found != owners.end() && found->second != rule.interface_luid) {
         *error = "WFP App ID overlaps rules on different adapters";

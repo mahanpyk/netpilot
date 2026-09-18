@@ -253,7 +253,9 @@ bool IsValidAppRule(const AppRuleSpec& rule, std::string* error) {
       std::filesystem::path path = std::filesystem::u8path(executable.path);
       std::string extension = path.extension().string();
       std::transform(extension.begin(), extension.end(), extension.begin(),
-                     [](unsigned char value) { return std::tolower(value); });
+                     [](unsigned char value) {
+                       return static_cast<char>(std::tolower(value));
+                     });
       if (!path.is_absolute() || extension != ".exe" ||
           executable.app_id.empty() || executable.app_id.size() > 32768) {
         *error = "invalid executable identity";

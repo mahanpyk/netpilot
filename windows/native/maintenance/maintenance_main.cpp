@@ -49,7 +49,8 @@ bool TestModeEnabled() {
 
 std::filesystem::path ExecutableDirectory() {
   std::wstring value(32768, L'\0');
-  const DWORD size = GetModuleFileNameW(nullptr, value.data(), value.size());
+  const DWORD size = GetModuleFileNameW(
+      nullptr, value.data(), static_cast<DWORD>(value.size()));
   value.resize(size);
   return std::filesystem::path(value).parent_path();
 }

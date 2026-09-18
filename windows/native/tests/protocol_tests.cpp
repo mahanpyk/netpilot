@@ -1,7 +1,17 @@
-#include <cassert>
+#include <cstdlib>
 #include <iostream>
 
 #include "../common/netpilot_protocol.h"
+
+namespace {
+
+void Check(bool condition, const char* message) {
+  if (condition) return;
+  std::cerr << "NetPilot protocol test failed: " << message << '\n';
+  std::exit(EXIT_FAILURE);
+}
+
+}  // namespace
 
 int main() {
   const std::vector<netpilot::RouteSpec> routes = {
@@ -10,14 +20,18 @@ int main() {
   netpilot::EncodeRoutes(routes, &route_writer);
   netpilot::BufferReader route_reader(route_writer.bytes());
   std::vector<netpilot::RouteSpec> decoded_routes;
-  assert(netpilot::DecodeRoutes(&route_reader, &decoded_routes));
-  assert(decoded_routes.size() == 1);
-  assert(decoded_routes[0].interface_luid == "123456");
+  Check(netpilot::DecodeRoutes(&route_reader, &decoded_routes),
+        "route payload should decode");
+  Check(decoded_routes.size() == 1, "one route should decode");
+  Check(decoded_routes[0].interface_luid == "123456",
+        "route LUID should round trip");
   std::string error;
-  assert(netpilot::IsValidRoute(decoded_routes[0], &error));
+  Check(netpilot::IsValidRoute(decoded_routes[0], &error),
+        "valid route should pass validation");
   auto injection = decoded_routes[0];
   injection.interface_luid = "1 & powershell";
-  assert(!netpilot::IsValidRoute(injection, &error));
+  Check(!netpilot::IsValidRoute(injection, &error),
+        "injected LUID should fail validation");
 
   netpilot::AppRuleSpec app;
   app.id = "browser-rule";
@@ -31,11 +45,15 @@ int main() {
   bool master = false;
   std::string hash;
   std::vector<netpilot::AppRuleSpec> decoded_apps;
-  assert(netpilot::DecodeAppRules(&app_reader, &master, &hash, &decoded_apps));
-  assert(master && hash == "hash" && decoded_apps.size() == 1);
-  assert(netpilot::IsValidAppRule(decoded_apps[0], &error));
+  Check(netpilot::DecodeAppRules(&app_reader, &master, &hash, &decoded_apps),
+        "app-rule payload should decode");
+  Check(master && hash == "hash" && decoded_apps.size() == 1,
+        "app-rule state should round trip");
+  Check(netpilot::IsValidAppRule(decoded_apps[0], &error),
+        "valid app rule should pass validation");
   decoded_apps[0].policy = "execute";
-  assert(!netpilot::IsValidAppRule(decoded_apps[0], &error));
+  Check(!netpilot::IsValidAppRule(decoded_apps[0], &error),
+        "invalid policy should fail validation");
 
   std::cout << "NetPilot protocol tests passed\n";
   return 0;
