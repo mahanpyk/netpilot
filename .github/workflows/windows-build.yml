@@ -127,8 +127,8 @@ jobs:
       - name: Install WiX Toolset
         shell: pwsh
         run: |
-          dotnet tool install --global wix --version 4.*
-          wix extension add WixToolset.Bal.wixext/4.* --global
+          dotnet tool install --global wix --version 4.0.6
+          wix extension add WixToolset.Bal.wixext/4.0.6 --global
 
       - name: Build MSI and bootstrapper
         shell: pwsh

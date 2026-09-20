@@ -496,6 +496,7 @@ remain unexecuted until the Windows VM is available.
 
 ## Changelog
 
+- 2026-09-20: Pinned the Windows CI WiX tool and bootstrapper extension to the same concrete 4.0.6 version because WiX rejects wildcard extension versions.
 - 2026-09-20: Bounded the Windows driver CI signing step and added phase markers. CI now inspects the test signatures without importing the ephemeral certificate into Windows trust stores, which had blocked headless builds; testers must still trust the public certificate on their own test machine.
 - 2026-09-20: Disabled WDK's implicit test signing during MSBuild; CI signs the built SYS and CAT explicitly with SHA-256 after catalog generation.
 - 2026-09-20: Windows CI emits actionable driver and catalog tool failures as job annotations, so WDK build failures can be diagnosed without an interactive log session.
