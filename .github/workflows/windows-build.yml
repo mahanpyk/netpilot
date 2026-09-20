@@ -74,6 +74,7 @@ jobs:
 
       - name: Build and test-sign WFP driver
         shell: pwsh
+        timeout-minutes: 8
         run: |
           $driverOut = Join-Path $PWD 'build\windows\driver\Release'
           New-Item -ItemType Directory -Force $driverOut | Out-Null
@@ -100,12 +101,17 @@ jobs:
             throw "Inf2Cat failed with exit code $catalogExitCode."
           }
 
+          Write-Host 'Creating ephemeral driver test certificate...'
           $certificate = New-SelfSignedCertificate -Type CodeSigningCert `
             -Subject 'CN=NetPilot Driver Test' -CertStoreLocation Cert:\CurrentUser\My
           $publicCertificate = Join-Path $driverOut 'NetPilotDriverTest.cer'
           Export-Certificate -Cert $certificate -FilePath $publicCertificate -Force | Out-Null
-          Import-Certificate -FilePath $publicCertificate -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
-          Import-Certificate -FilePath $publicCertificate -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
+          Write-Host 'Trusting the public certificate on this ephemeral runner...'
+          & certutil -f -user -addstore Root $publicCertificate
+          if ($LASTEXITCODE -ne 0) { throw 'Adding the test certificate to Root failed.' }
+          & certutil -f -user -addstore TrustedPublisher $publicCertificate
+          if ($LASTEXITCODE -ne 0) { throw 'Adding the test certificate to TrustedPublisher failed.' }
+          Write-Host 'Signing and verifying the driver files...'
           Get-ChildItem $driverOut -Include *.sys,*.cat -Recurse | ForEach-Object {
             & '${{ steps.tools.outputs.signtool }}' sign /fd sha256 /sha1 $certificate.Thumbprint /v $_.FullName
             if ($LASTEXITCODE -ne 0) { throw "Signing $($_.Name) failed." }
