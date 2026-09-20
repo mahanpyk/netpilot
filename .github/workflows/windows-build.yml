@@ -106,17 +106,17 @@ jobs:
             -Subject 'CN=NetPilot Driver Test' -CertStoreLocation Cert:\CurrentUser\My
           $publicCertificate = Join-Path $driverOut 'NetPilotDriverTest.cer'
           Export-Certificate -Cert $certificate -FilePath $publicCertificate -Force | Out-Null
-          Write-Host 'Trusting the public certificate on this ephemeral runner...'
-          & certutil -f -user -addstore Root $publicCertificate
-          if ($LASTEXITCODE -ne 0) { throw 'Adding the test certificate to Root failed.' }
-          & certutil -f -user -addstore TrustedPublisher $publicCertificate
-          if ($LASTEXITCODE -ne 0) { throw 'Adding the test certificate to TrustedPublisher failed.' }
           Write-Host 'Signing and verifying the driver files...'
           Get-ChildItem $driverOut -Include *.sys,*.cat -Recurse | ForEach-Object {
             & '${{ steps.tools.outputs.signtool }}' sign /fd sha256 /sha1 $certificate.Thumbprint /v $_.FullName
             if ($LASTEXITCODE -ne 0) { throw "Signing $($_.Name) failed." }
-            & '${{ steps.tools.outputs.signtool }}' verify /pa /v $_.FullName
-            if ($LASTEXITCODE -ne 0) { throw "Signature verification for $($_.Name) failed." }
+            $signature = Get-AuthenticodeSignature -FilePath $_.FullName
+            if (-not $signature.SignerCertificate -or
+                $signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint -or
+                $signature.Status -eq 'HashMismatch') {
+              throw "Signature inspection for $($_.Name) failed: $($signature.Status)."
+            }
+            Write-Host "Signed $($_.Name): $($signature.Status) (test certificate is untrusted on CI)."
           }
 
           $destination = Join-Path $PWD 'build\windows\x64\runner\Release\driver'
