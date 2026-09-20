@@ -22,10 +22,5 @@
     <Link><AdditionalDependencies>Fwpkclnt.lib;Wdmsec.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
   </ItemDefinitionGroup>
   <ItemGroup><ClCompile Include="netpilot_wfp.cpp" /></ItemGroup>
-  <ItemGroup>
-    <Inf Include="NetPilotWfp.inf">
-      <ExcludedFromBuild>true</ExcludedFromBuild>
-    </Inf>
-  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

@@ -1,5 +1,6 @@
 #include <ntddk.h>
 #include <initguid.h>
+#define NDIS630 1
 #include <ndis.h>
 #include <fwpsk.h>
 #include <fwpmk.h>
