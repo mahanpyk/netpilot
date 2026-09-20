@@ -496,6 +496,7 @@ remain unexecuted until the Windows VM is available.
 
 ## Changelog
 
+- 2026-09-20: Removed the user-mode CRT `stdint.h` dependency from the shared WFP redirect context; fixed-width aliases and compile-time layout checks preserve its 24-byte driver/service ABI.
 - 2026-09-20: Set the WFP driver's NDIS 6.30 header mode so `NET_BUFFER_LIST` is declared, and detached INF packaging from MSBuild because the hosted WDK lacks `InfVerif.dll`; the CI packaging stage retains explicit `Inf2Cat` validation.
 - 2026-09-20: Corrected WDK driver compilation by loading NDIS declarations before WFP, matching the classify and notify callback signatures, passing a UNICODE_STRING device SDDL, and treating modified-layer application as a void operation. WFP owns redirect context memory after it is applied.
 - 2026-09-18: Restored the Windows NetIO declarations after `iphlpapi.h` in the runner and service headers, and made Win32 string buffer conversions explicit for clean MSVC compilation.
