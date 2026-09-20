@@ -2,6 +2,36 @@
 
 > **Keep this file current.** Any agent or developer that changes architecture, file layout, native contracts, models, or capabilities must update this document in the same change. See [`AGENTS.md`](AGENTS.md).
 
+This is an operational handoff, not a commit log. Keep contracts, decisions,
+verified state, remaining gates, and the shortest path to reproduce a failure
+here. Consolidate routine fixes into milestones; use Git history for details.
+The original `AGENTS.md` says Windows is deferred, but the user's later
+explicit Windows parity request superseded that scope note for this branch.
+
+## Current state and next gate (2026-09-20)
+
+- Work is on `codex/windows-parity`. Windows GitHub Actions run
+  [#18](https://github.com/mahanpyk/netpilot_desktop/actions/runs/35528714065)
+  succeeded at commit `58294f8`: Flutter analyze/tests, Release app and native
+  service build, CTest, WDK driver build, Inf2Cat, test signing, WiX MSI/Burn,
+  portable ZIP, and artifact upload. This is a **build gate**, not evidence that
+  driver installation or routing works on a live Windows machine.
+- The `NetPilot-windows-x64-test` Actions artifact contains `NetPilotSetup.exe`,
+  `NetPilot.msi`, the portable ZIP, and `NetPilotDriverTest.cer`. It expires
+  after 14 days. Each CI run creates a new signing certificate; use the `.cer`
+  from the same artifact as its installer. See `windows/README.md` for Test Mode
+  and certificate trust steps. Use a disposable Windows VM or test machine;
+  this is not a production release.
+- **Next:** run `windows/IntegrationTests/WFP_GATE.md` on a snapshot-backed
+  Windows 11 x64 VM with two real/bridged adapters. Begin with install, service
+  and driver status, exact App ID, and TCP/UDP egress. Continue to QUIC,
+  block/fallback, coexistence with destination rules, restart, and lifecycle
+  tests. Repeat acceptance on physical Windows 10/11. Fix failures before
+  calling Windows parity complete.
+- macOS per-app System Extension still needs a Team/profile with Network
+  Extension entitlement and signed live testing. Unsigned build/unit tests are
+  not a substitute for that gate.
+
 ## Product goal
 
 NetPilot helps developers who are connected to **Wi‑Fi (internet)** and **company LAN (intranet)** at the same time. Default macOS service order may send all traffic via Wi‑Fi, so intranet hosts become unreachable. NetPilot lets the user:
@@ -407,8 +437,9 @@ other non-conflicting routes still apply.
 ## Testing
 
 Toolchain baseline: **Flutter 3.47.4 stable / Dart 3.13.3**. Minimum SDK
-constraints are declared in `pubspec.yaml`; commit `pubspec.lock` for reproducible
-package resolution. CocoaPods and Runner both target macOS 14.0.
+constraints are declared in `pubspec.yaml`. `pubspec.lock` is currently ignored
+and not tracked, so CI resolves dependencies on each run. CocoaPods and Runner
+both target macOS 14.0.
 
 ```bash
 PUB_HOSTED_URL=https://pub.dev flutter pub get   # if corporate mirror fails
@@ -424,21 +455,29 @@ profile are configured, use
 The route parser regression uses `/sbin/route -n -d -v get` (read-only debug
 mode) to check gateway flags and interface encoding without mutating routes.
 
-Windows source/build gates are in `windows/scripts`. `build_windows.ps1` runs
-Flutter analyze/tests/build, MSBuild x64 for the WDK driver, Inf2Cat, SignTool,
-and CTest before producing installer inputs. The mandatory real-network gate is
-documented in `windows/IntegrationTests/WFP_GATE.md` and covers exact App ID,
-TCP, UDP, QUIC, block/fallback, two adapters, restart, sleep/resume, Driver
-Verifier, stress, and installer lifecycle on Windows 11 VM and physical Windows
-10/11. This macOS host has no Windows hypervisor/SDK/WDK, so those native gates
-remain unexecuted until the Windows VM is available.
+Windows CI is `.github/workflows/windows-build.yml` on `windows-2022` and runs
+on pushes to `codex/windows-parity`. It builds the Release Flutter app/native
+service, runs Flutter/CTest, builds the WDK driver, generates the catalog,
+test-signs SYS/CAT, and packages MSI/Burn plus a portable ZIP. The CI signing
+certificate is deliberately *not* trusted on the headless runner; an
+`UnknownError` Authenticode status alongside the expected signer thumbprint is
+normal there. The public `.cer` is exported; its private key is not. WiX CLI
+and Bal extension are both pinned to 4.0.6; `windows/installer/build.ps1`
+generates per-file WiX components into ignored `windows/installer/out/`.
+
+The mandatory **live** gate is `windows/IntegrationTests/WFP_GATE.md`: exact
+App ID, TCP/UDP/QUIC egress, block/fallback, two adapters, restart,
+sleep/resume, Driver Verifier, stress, and install/repair/uninstall on a Windows
+11 VM and physical Windows 10/11. The macOS host cannot run this gate. A green
+CI build must not be reported as successful split-tunneling integration.
 
 ## Known limitations
 
 - Hostname → IP: CDN/shared IPs may mis-route unrelated hosts.
 - Dependency discovery is static: computed runtime URLs, browser-only requests,
   authenticated content, and URLs hidden by obfuscated JavaScript may be missed.
-- `resolveHost` uses system DNS (interface-scoped DNS reserved for later).
+- macOS `resolveHost` uses system DNS. The Windows bridge requests DNS on the
+  selected interface; live validation with split adapters is still pending.
 - Helper install needs code signing + user Login Items approval.
 - System Extension activation and end-to-end TCP/UDP/QUIC egress verification
   require an Apple Development/Developer ID certificate and provisioning
@@ -489,43 +528,29 @@ remain unexecuted until the Windows VM is available.
 | Per-app UI, persistence, native bridge, System Extension | Done (signed integration pending Team/profile) |
 | Desktop UI | Done |
 | Windows Flutter models/UI/native bridge | Done |
-| Windows inventory/DNS/destination routes | Implemented; Windows build/integration pending |
+| Windows inventory/DNS/destination routes | Compiles in CI; live routing/integration pending |
 | Windows WFP driver/service/TCP-UDP relay | Implemented, including secured service-PID registration and TCP/UDP redirect-record propagation; signed integration gate pending |
-| Windows WiX installer and test-sign scripts | Implemented; Windows lifecycle test pending |
+| Windows WiX installer and test-sign scripts | MSI/Burn and portable ZIP build in CI; install/repair/upgrade/uninstall pending on VM |
 | IPv6 | Not started |
 
 ## Changelog
 
-- 2026-09-20: Configured the Windows Flutter bundle install destination before adding native service and maintenance targets, so their executables are included in the published Release directory and MSI.
-- 2026-09-20: Windows installer packaging now generates a WiX component for every published file and its directory, replacing unsupported WiX v4 `Files` harvesting inside a component group; MSI build failures stop before bootstrapper construction.
-- 2026-09-20: Pinned the Windows CI WiX tool and bootstrapper extension to the same concrete 4.0.6 version because WiX rejects wildcard extension versions.
-- 2026-09-20: Bounded the Windows driver CI signing step and added phase markers. CI now inspects the test signatures without importing the ephemeral certificate into Windows trust stores, which had blocked headless builds; testers must still trust the public certificate on their own test machine.
-- 2026-09-20: Disabled WDK's implicit test signing during MSBuild; CI signs the built SYS and CAT explicitly with SHA-256 after catalog generation.
-- 2026-09-20: Windows CI emits actionable driver and catalog tool failures as job annotations, so WDK build failures can be diagnosed without an interactive log session.
-- 2026-09-20: Exported the C ABI for the WFP driver's `DriverEntry` so the WDK linker can resolve the kernel entry point.
-- 2026-09-20: CI now exports the per-build public test-signing certificate with Windows artifacts and trusts it only on the ephemeral runner for signature verification; Windows test-machine instructions specify certificate import before installer use.
-- 2026-09-20: Removed the user-mode CRT `stdint.h` dependency from the shared WFP redirect context; fixed-width aliases and compile-time layout checks preserve its 24-byte driver/service ABI.
-- 2026-09-20: Set the WFP driver's NDIS 6.30 header mode so `NET_BUFFER_LIST` is declared, and detached INF packaging from MSBuild because the hosted WDK lacks `InfVerif.dll`; the CI packaging stage retains explicit `Inf2Cat` validation.
-- 2026-09-20: Corrected WDK driver compilation by loading NDIS declarations before WFP, matching the classify and notify callback signatures, passing a UNICODE_STRING device SDDL, and treating modified-layer application as a void operation. WFP owns redirect context memory after it is applied.
-- 2026-09-18: Restored the Windows NetIO declarations after `iphlpapi.h` in the runner and service headers, and made Win32 string buffer conversions explicit for clean MSVC compilation.
-- 2026-09-18: Removed the remaining MSVC `/WX` conversion failures in the relay and runner and included the Win32 shell API declaration used by maintenance repair.
-- 2026-09-18: Added the Winsock IP type header before IP Helper/NetIO declarations so modern route and interface APIs are visible to MSVC.
-- 2026-09-18: Removed an empty custom INF timestamp override that caused WDK `stampinf.exe` to receive an invalid version argument in CI.
-- 2026-09-18: Moved CI INF validation out of the driver MSBuild target and into the explicit `Inf2Cat` packaging step, avoiding the hosted runner's missing `InfVerif.dll` while preserving catalog validation.
-
-- **2026-09-18** — Added Windows 10 22H2/11 x64 implementation on `codex/windows-parity`: platform-neutral schema v2 identities and stable adapter ids; Windows Method/Event channels; physical adapter inventory, interface-scoped DNS and notifications; canonical EXE/AuthentiCode/helper/icon discovery; a bounded named-pipe protocol; LocalSystem route/WFP/relay service; primitive WFP connect-redirect driver package; secured service-PID registration; loop-safe redirect state checks; TCP/UDP redirect-record propagation and source/interface-bound relay with metrics; block/fallback and atomic apply; native Windows title bar/settings; NetPilot multi-resolution ICO; fixed-operation maintenance executable; WiX Burn/MSI setup with repair/rollback/uninstall; test-sign/build scripts, CTest and mandatory VM/physical acceptance documentation. Flutter analyze and all 33 Dart/widget tests pass on macOS. Windows SDK/WDK build, signed driver install, UDP/QUIC gate, and installer lifecycle remain pending because this host has no Windows VM/hypervisor.
-- **2026-09-18** — Added a Windows GitHub Actions test-build pipeline that analyzes and tests Flutter, compiles the Windows runner/service, runs native protocol tests, builds and test-signs the WFP driver, creates the WiX MSI/Burn installer, and publishes portable and installer artifacts.
-- **2026-09-18** — Fixed the first MSVC build gate: user-mode IP Helper headers now enter through `iphlpapi.h`, Shell argument declarations are explicit, warning-clean conversions preserve `/WX`, and native protocol checks remain active in Release builds.
-
-- **2026-09-17** — Added Phase 2 per-app split tunneling: Apps UI and versioned persistence, pending/applied hashes, signed `.app` and helper inspection, conflict/physical-interface validation, System Extension activation/status channels, and a `NETransparentProxyProvider` target that matches exact app identity and relays opaque IPv4 TCP/UDP/QUIC with `NWParameters.requiredInterface`. Added block/fallback policies, per-rule flow/byte/error diagnostics, manual Apply & Restart, host/extension entitlements, Dart tests, and Swift identity matching tests. Unsigned native compilation passes; signed installation and live egress testing remain gated on an Apple Team/profile with Network Extension permission.
-- **2026-09-17** — Added automatic URL dependency discovery and persisted Sub-rules. URL Save now applies the parent route, scans HTML/inline JS/same-origin JS within bounded limits, resolves and applies discovered hosts, exposes per-child toggles and status, preserves child choices on resave, and falls back to the parent on scan failure. Route planning now de-duplicates equivalent CIDRs and blocks exact cross-interface conflicts with diagnostics. Existing JSON remains backward compatible.
-- **2026-09-17** — Restyled the custom Close / Minimize / Zoom controls for the current macOS design language with an adaptive blurred glass capsule, dimensional color treatment, clear symbols, and hover/press motion; native window actions are unchanged.
-- **2026-09-17** — Fixed false `enabled` helper status and eight-second timeouts with a live XPC health check, immediate XPC error completion, and a working Install / Repair flow that reapplies rules. Fixed Scrollbar controller attachment, moved theme switching exclusively to Settings, and added custom Flutter Close / Minimize / Zoom controls backed by the native MethodChannel.
-- **2026-09-17** — Rebuilt the desktop UI from approved design 3: fixed-size tabbed layout, independent Rules and Networks scrolling, Settings theme switch, and in-app Diagnostics panel. The dark theme primary color is now NetPilot green while surfaces remain neutral graphite.
-- **2026-09-17** — Added `[NetPilot]` route reconciliation diagnostics to the Flutter terminal, hid the native macOS title bar and traffic-light controls, changed the dark palette to neutral graphite with a muted blue accent, and bumped the app build to 1.0.1+2 so macOS refreshes the Dock icon.
-- **2026-09-17** — Replaced the macOS app icon with a custom NetPilot route-and-arrow mark and generated all required AppIcon sizes (16–1024 px).
-- **2026-09-17** — Added Material light and dark themes; the application defaults to dark mode. Theme-aware surface colors keep cards and form fields readable in both modes.
-- **2026-09-17** — Fixed `route: bad address: en8` by separating gateway routes (`-ifp <name>:`) from direct interface routes (`-interface <name>`), matching add/delete selectors, and adding native argv plus real macOS parser regression tests. All 6 targeted native tests and `flutter build macos --debug` passed; live privileged routing was not exercised. Helper/XPC payloads and persisted route format are unchanged.
-- **2026-09-17** — Upgraded to Flutter 3.47.4 stable / Dart 3.13.3, refreshed package locks and flutter_lints 6, migrated deprecated dropdown initialization and new Dart lint fixes, aligned CocoaPods with macOS 14.0, and regenerated native plugin integration for path_provider_foundation's FFI implementation. Cleared stale generated Swift package references with `flutter clean`. `flutter analyze`, all 11 Flutter tests, and a clean `flutter build macos --debug` passed.
-- **2026-09-17** — MVP implemented: Flutter UI/controller, macOS inventory plugin, privileged helper embed script, handoff docs. `flutter analyze` / `flutter test` / `flutter build macos --debug` verified.
-- **2026-09-17** — Initial handoff drafted; implementation started.
+- **2026-09-20 — Windows test package builds in CI.** The Release Runner,
+  service, CTest, WDK driver/CAT, per-run test signatures, WiX MSI/Burn, and
+  portable ZIP all pass and upload in Actions run #18. The installer now
+  harvests the published bundle through generated WiX components. Live install,
+  driver load, route mutation, and per-app TCP/UDP/QUIC egress remain unverified.
+- **2026-09-18 — Windows parity implementation.** Added Windows UI/native bridge,
+  inventory and DNS, destination routes, EXE identity discovery, LocalSystem
+  service and bounded pipe, WFP callout and relay, maintenance tool, installer,
+  and test plans. Subsequent CI fixes made these sources compile and package;
+  read Git history for individual compiler and WDK corrections.
+- **2026-09-17 — macOS per-app routing and URL dependencies.** Added persisted
+  app rules, signed app/helper inspection, transparent proxy target and opaque
+  TCP/UDP relay; added bounded static URL dependency discovery, sub-rules,
+  route deduplication/conflict handling, UI, and tests. Signed macOS integration
+  remains gated on Apple entitlements and provisioning.
+- **2026-09-17 — macOS MVP and desktop polish.** Upgraded Flutter, implemented
+  network inventory and privileged route helper, corrected macOS gateway route
+  arguments, added terminal diagnostics, dark/light theme, custom icon/window
+  controls, and tabbed Rules/Apps/Networks/Settings UI.
