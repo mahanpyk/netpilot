@@ -77,15 +77,28 @@ jobs:
         run: |
           $driverOut = Join-Path $PWD 'build\windows\driver\Release'
           New-Item -ItemType Directory -Force $driverOut | Out-Null
+          $driverLog = Join-Path $env:RUNNER_TEMP 'netpilot-driver-build.log'
           & '${{ steps.tools.outputs.msbuild }}' windows\native\driver\NetPilotWfp.vcxproj `
             /m /p:Configuration=Release /p:Platform=x64 /p:OutDir="$driverOut\" `
-            /p:DriverSign=Off
-          if ($LASTEXITCODE -ne 0) { throw "Driver build failed with exit code $LASTEXITCODE." }
+            /p:DriverSign=Off 2>&1 | Tee-Object -FilePath $driverLog
+          $driverExitCode = $LASTEXITCODE
+          if ($driverExitCode -ne 0) {
+            Get-Content $driverLog | Select-String -Pattern 'error |fatal error|failed' |
+              Select-Object -Last 12 | ForEach-Object { Write-Host "::error::$($_.Line)" }
+            throw "Driver build failed with exit code $driverExitCode."
+          }
 
           Copy-Item windows\native\driver\NetPilotWfp.inf $driverOut -Force
 
-          & '${{ steps.tools.outputs.inf2cat }}' /driver:$driverOut /os:10_X64
-          if ($LASTEXITCODE -ne 0) { throw "Inf2Cat failed with exit code $LASTEXITCODE." }
+          $catalogLog = Join-Path $env:RUNNER_TEMP 'netpilot-inf2cat.log'
+          & '${{ steps.tools.outputs.inf2cat }}' /driver:$driverOut /os:10_X64 `
+            2>&1 | Tee-Object -FilePath $catalogLog
+          $catalogExitCode = $LASTEXITCODE
+          if ($catalogExitCode -ne 0) {
+            Get-Content $catalogLog | Select-String -Pattern 'error|fatal|failed' |
+              Select-Object -Last 12 | ForEach-Object { Write-Host "::error::$($_.Line)" }
+            throw "Inf2Cat failed with exit code $catalogExitCode."
+          }
 
           $certificate = New-SelfSignedCertificate -Type CodeSigningCert `
             -Subject 'CN=NetPilot Driver Test' -CertStoreLocation Cert:\CurrentUser\My
