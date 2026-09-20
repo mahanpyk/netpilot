@@ -1,5 +1,6 @@
 #include <ntddk.h>
 #include <initguid.h>
+#include <ndis.h>
 #include <fwpsk.h>
 #include <fwpmk.h>
 #include <wdmsec.h>
@@ -61,7 +62,7 @@ static void NTAPI ClassifyConnectRedirectV4(
 
   UINT64 classify_handle = 0;
   FWPS_CONNECT_REQUEST0* request = NULL;
-  NTSTATUS status = FwpsAcquireClassifyHandle0(classify_context, 0,
+  NTSTATUS status = FwpsAcquireClassifyHandle0(const_cast<void*>(classify_context), 0,
                                                 &classify_handle);
   if (!NT_SUCCESS(status)) {
     classify_out->actionType = FWP_ACTION_BLOCK;
@@ -102,17 +103,14 @@ static void NTAPI ClassifyConnectRedirectV4(
   request->localRedirectContext = context;
   request->localRedirectContextSize = sizeof(*context);
 
-  status = FwpsApplyModifiedLayerData0(classify_handle, request, 0);
-  if (!NT_SUCCESS(status)) ExFreePoolWithTag(context, 'tPpN');
+  FwpsApplyModifiedLayerData0(classify_handle, request, 0);
   FwpsReleaseClassifyHandle0(classify_handle);
-  classify_out->actionType = NT_SUCCESS(status) ? FWP_ACTION_PERMIT
-                                                : FWP_ACTION_BLOCK;
-  if (!NT_SUCCESS(status)) classify_out->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+  classify_out->actionType = FWP_ACTION_PERMIT;
 }
 
 static NTSTATUS NTAPI Notify(FWPS_CALLOUT_NOTIFY_TYPE type,
                              const GUID* filter_key,
-                             const FWPS_FILTER1* filter) {
+                             FWPS_FILTER1* filter) {
   UNREFERENCED_PARAMETER(type);
   UNREFERENCED_PARAMETER(filter_key);
   UNREFERENCED_PARAMETER(filter);
@@ -177,11 +175,13 @@ static void Unload(PDRIVER_OBJECT driver) {
 NTSTATUS DriverEntry(PDRIVER_OBJECT driver, PUNICODE_STRING registry_path) {
   UNICODE_STRING device_name;
   UNICODE_STRING link;
+  UNICODE_STRING sddl;
   UNREFERENCED_PARAMETER(registry_path);
   RtlInitUnicodeString(&device_name, NETPILOT_DEVICE_NAME);
+  RtlInitUnicodeString(&sddl, L"D:P(A;;GA;;;SY)(A;;GA;;;BA)");
   NTSTATUS status = IoCreateDeviceSecure(
       driver, 0, &device_name, FILE_DEVICE_NETWORK, FILE_DEVICE_SECURE_OPEN,
-      FALSE, L"D:P(A;;GA;;;SY)(A;;GA;;;BA)", &NETPILOT_DEVICE_CLASS,
+      FALSE, &sddl, &NETPILOT_DEVICE_CLASS,
       &g_device);
   if (!NT_SUCCESS(status)) return status;
   RtlInitUnicodeString(&link, NETPILOT_DOS_DEVICE_NAME);

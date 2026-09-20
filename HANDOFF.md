@@ -496,6 +496,7 @@ remain unexecuted until the Windows VM is available.
 
 ## Changelog
 
+- 2026-09-20: Corrected WDK driver compilation by loading NDIS declarations before WFP, matching the classify and notify callback signatures, passing a UNICODE_STRING device SDDL, and treating modified-layer application as a void operation. WFP owns redirect context memory after it is applied.
 - 2026-09-18: Restored the Windows NetIO declarations after `iphlpapi.h` in the runner and service headers, and made Win32 string buffer conversions explicit for clean MSVC compilation.
 - 2026-09-18: Removed the remaining MSVC `/WX` conversion failures in the relay and runner and included the Win32 shell API declaration used by maintenance repair.
 - 2026-09-18: Added the Winsock IP type header before IP Helper/NetIO declarations so modern route and interface APIs are visible to MSVC.
