@@ -173,7 +173,8 @@ static void Unload(PDRIVER_OBJECT driver) {
   if (g_device) IoDeleteDevice(g_device);
 }
 
-NTSTATUS DriverEntry(PDRIVER_OBJECT driver, PUNICODE_STRING registry_path) {
+extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT driver,
+                                PUNICODE_STRING registry_path) {
   UNICODE_STRING device_name;
   UNICODE_STRING link;
   UNICODE_STRING sddl;

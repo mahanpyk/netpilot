@@ -496,6 +496,8 @@ remain unexecuted until the Windows VM is available.
 
 ## Changelog
 
+- 2026-09-20: Exported the C ABI for the WFP driver's `DriverEntry` so the WDK linker can resolve the kernel entry point.
+- 2026-09-20: CI now exports the per-build public test-signing certificate with Windows artifacts and trusts it only on the ephemeral runner for signature verification; Windows test-machine instructions specify certificate import before installer use.
 - 2026-09-20: Removed the user-mode CRT `stdint.h` dependency from the shared WFP redirect context; fixed-width aliases and compile-time layout checks preserve its 24-byte driver/service ABI.
 - 2026-09-20: Set the WFP driver's NDIS 6.30 header mode so `NET_BUFFER_LIST` is declared, and detached INF packaging from MSBuild because the hosted WDK lacks `InfVerif.dll`; the CI packaging stage retains explicit `Inf2Cat` validation.
 - 2026-09-20: Corrected WDK driver compilation by loading NDIS declarations before WFP, matching the classify and notify callback signatures, passing a UNICODE_STRING device SDDL, and treating modified-layer application as a void operation. WFP owns redirect context memory after it is applied.

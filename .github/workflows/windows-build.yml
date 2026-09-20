@@ -89,6 +89,10 @@ jobs:
 
           $certificate = New-SelfSignedCertificate -Type CodeSigningCert `
             -Subject 'CN=NetPilot Driver Test' -CertStoreLocation Cert:\CurrentUser\My
+          $publicCertificate = Join-Path $driverOut 'NetPilotDriverTest.cer'
+          Export-Certificate -Cert $certificate -FilePath $publicCertificate -Force | Out-Null
+          Import-Certificate -FilePath $publicCertificate -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+          Import-Certificate -FilePath $publicCertificate -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
           Get-ChildItem $driverOut -Include *.sys,*.cat -Recurse | ForEach-Object {
             & '${{ steps.tools.outputs.signtool }}' sign /fd sha256 /sha1 $certificate.Thumbprint /v $_.FullName
             if ($LASTEXITCODE -ne 0) { throw "Signing $($_.Name) failed." }
@@ -99,6 +103,7 @@ jobs:
           $destination = Join-Path $PWD 'build\windows\x64\runner\Release\driver'
           New-Item -ItemType Directory -Force $destination | Out-Null
           Copy-Item "$driverOut\NetPilotWfp.*" $destination -Force
+          Copy-Item $publicCertificate $destination -Force
 
       - name: Install WiX Toolset
         shell: pwsh
@@ -126,3 +131,4 @@ jobs:
             windows/installer/out/NetPilotSetup.exe
             windows/installer/out/NetPilot.msi
             windows/installer/out/NetPilot-windows-x64-portable.zip
+            build/windows/x64/runner/Release/driver/NetPilotDriverTest.cer

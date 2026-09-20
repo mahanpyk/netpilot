@@ -25,3 +25,22 @@ The test-signed package is only for Test Mode development. Public distribution
 requires a production certificate and Microsoft Hardware Dashboard signing.
 Run the mandatory [WFP integration gate](IntegrationTests/WFP_GATE.md) before
 enabling Windows app routing for acceptance.
+
+## CI test package
+
+The GitHub Actions artifact contains `NetPilotSetup.exe`, `NetPilot.msi`, a
+portable ZIP, and the public `NetPilotDriverTest.cer` that signed **that exact
+build**. The CI signing key is ephemeral and is never included. For a disposable
+Windows test machine, enable Test Mode and reboot, then import the supplied
+certificate into both the Local Machine Trusted Root and Trusted Publishers
+stores from an elevated PowerShell session:
+
+```powershell
+Import-Certificate -FilePath .\NetPilotDriverTest.cer -CertStoreLocation Cert:\LocalMachine\Root
+Import-Certificate -FilePath .\NetPilotDriverTest.cer -CertStoreLocation Cert:\LocalMachine\TrustedPublisher
+```
+
+Only then run `NetPilotSetup.exe`. Test Mode and certificate trust change the
+machine's driver security posture; use a test VM or machine, and remove the
+certificate and disable Test Mode after testing. The installer has not yet
+passed a live Windows install/upgrade/uninstall gate.
