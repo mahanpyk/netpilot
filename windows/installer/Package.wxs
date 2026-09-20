@@ -15,12 +15,6 @@
       <ComponentGroupRef Id="NetPilotFiles" />
       <ComponentRef Id="ProgramMenuShortcut" />
     </Feature>
-    <ComponentGroup Id="NetPilotFiles" Directory="INSTALLFOLDER">
-      <Files Include="$(var.PublishDir)\**" Exclude="$(var.PublishDir)\NetPilotMaintenance.exe" />
-      <Component Id="MaintenanceComponent" Guid="*">
-        <File Id="NetPilotMaintenanceExe" Source="$(var.PublishDir)\NetPilotMaintenance.exe" KeyPath="yes" />
-      </Component>
-    </ComponentGroup>
     <Component Id="ProgramMenuShortcut" Directory="ApplicationProgramsFolder" Guid="*">
       <Shortcut Id="NetPilotShortcut" Name="NetPilot" Target="[INSTALLFOLDER]netpilot_desktop.exe" WorkingDirectory="INSTALLFOLDER" />
       <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
