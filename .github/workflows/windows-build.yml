@@ -80,7 +80,7 @@ jobs:
           $driverLog = Join-Path $env:RUNNER_TEMP 'netpilot-driver-build.log'
           & '${{ steps.tools.outputs.msbuild }}' windows\native\driver\NetPilotWfp.vcxproj `
             /m /p:Configuration=Release /p:Platform=x64 /p:OutDir="$driverOut\" `
-            /p:DriverSign=Off 2>&1 | Tee-Object -FilePath $driverLog
+            /p:SignMode=Off 2>&1 | Tee-Object -FilePath $driverLog
           $driverExitCode = $LASTEXITCODE
           if ($driverExitCode -ne 0) {
             Get-Content $driverLog | Select-String -Pattern 'error |fatal error|failed' |

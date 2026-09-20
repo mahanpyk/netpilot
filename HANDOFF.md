@@ -496,6 +496,7 @@ remain unexecuted until the Windows VM is available.
 
 ## Changelog
 
+- 2026-09-20: Disabled WDK's implicit test signing during MSBuild; CI signs the built SYS and CAT explicitly with SHA-256 after catalog generation.
 - 2026-09-20: Windows CI emits actionable driver and catalog tool failures as job annotations, so WDK build failures can be diagnosed without an interactive log session.
 - 2026-09-20: Exported the C ABI for the WFP driver's `DriverEntry` so the WDK linker can resolve the kernel entry point.
 - 2026-09-20: CI now exports the per-build public test-signing certificate with Windows artifacts and trusts it only on the ephemeral runner for signature verification; Windows test-machine instructions specify certificate import before installer use.
