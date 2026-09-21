@@ -32,6 +32,29 @@ explicit Windows parity request superseded that scope note for this branch.
   Extension entitlement and signed live testing. Unsigned build/unit tests are
   not a substitute for that gate.
 
+### macOS on-device check (2026-09-21)
+
+- Two local Debug bundles were launched: the older `build/macos/Build/Products/Debug`
+  app (Rules/Networks/Settings) reports the route helper enabled; the newer
+  Xcode DerivedData Debug app (with Apps tab) reports **Helper not registered**,
+  **System Extension setup required**, and **Proxy: unconfigured**. Their
+  shared app-rule JSON currently contains zero rules, so no app flow was
+  available to exercise. The old helper is running under launchd, but its
+  registration does not make the newer app's helper registered.
+- `systemextensionsctl list` contains no NetPilot extension. Both local bundles
+  and the newer embedded Transparent Proxy have ad-hoc signatures with no Team
+  ID; strict signature verification of the newer bundle/extension fails. One
+  Apple Development signing identity is present, but none of the installed
+  provisioning profiles is for NetPilot or carries the required Network
+  Extension/System Extension entitlements. Rebuild and sign Runner, helper, and
+  extension with the same Team and the required approved profile before trying
+  activation. Do not interpret an unsigned Debug build as a per-app test build.
+- Current active IPv4 interfaces are Ethernet `en8` and VPN `utun6`; Wi-Fi
+  `en0` is not active. The per-app feature intentionally accepts physical
+  Wi-Fi/Ethernet, not VPN interfaces. Connect Wi-Fi as a second physical uplink
+  for the two-ISP egress gate. After a signed install, confirm extension and
+  proxy status first, then add a signed test app and verify TCP/UDP/QUIC egress.
+
 ## Product goal
 
 NetPilot helps developers who are connected to **Wi‑Fi (internet)** and **company LAN (intranet)** at the same time. Default macOS service order may send all traffic via Wi‑Fi, so intranet hosts become unreachable. NetPilot lets the user:
@@ -481,8 +504,9 @@ CI build must not be reported as successful split-tunneling integration.
 - Helper install needs code signing + user Login Items approval.
 - System Extension activation and end-to-end TCP/UDP/QUIC egress verification
   require an Apple Development/Developer ID certificate and provisioning
-  profiles with Network Extension approval. The current machine has no valid
-  identity, so only the unsigned compile gate and unit tests can run here.
+  profiles with Network Extension approval. An Apple Development identity is
+  present on this Mac, but no NetPilot profile with these entitlements was
+  found as of 2026-09-21; only unsigned compile/unit gates have run.
 - Per-app DNS is best effort because system-daemon DNS cannot always be
   attributed to the originating app. ICMP/raw IP, IPv6, standalone scripts and
   executables, and VPN/`utun` stacking are outside this phase.
@@ -535,6 +559,9 @@ CI build must not be reported as successful split-tunneling integration.
 
 ## Changelog
 
+- **2026-09-21 — macOS on-device diagnosis.** Launched both local Debug builds:
+  the newer Apps build is unsigned for System Extension purposes, has no active
+  NetPilot extension/proxy, and cannot yet run a real per-app egress test.
 - **2026-09-20 — Windows test package builds in CI.** The Release Runner,
   service, CTest, WDK driver/CAT, per-run test signatures, WiX MSI/Burn, and
   portable ZIP all pass and upload in Actions run #18. The installer now
