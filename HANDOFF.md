@@ -44,7 +44,8 @@ explicit Windows parity request superseded that scope note for this branch.
 - `systemextensionsctl list` contains no NetPilot extension. Both local bundles
   and the newer embedded Transparent Proxy have ad-hoc signatures with no Team
   ID; strict signature verification of the newer bundle/extension fails. One
-  Apple Development signing identity is present, but none of the installed
+  Apple Development signing identity is present, but it expired on
+  2026-08-22; do not export it for the release workflow. None of the installed
   provisioning profiles is for NetPilot or carries the required Network
   Extension/System Extension entitlements. Rebuild and sign Runner, helper, and
   extension with the same Team and the required approved profile before trying
@@ -88,8 +89,10 @@ explicit Windows parity request superseded that scope note for this branch.
   platforms' assets and SHA-256 checksums. The macOS job needs repository
   secrets `MACOS_CERT_P12_BASE64` and `MACOS_CERT_P12_PASSWORD`; without them
   it fails closed. Neither secrets nor a live tag run have been configured or
-  verified yet. Do not tag a release expecting it to succeed until the secrets
-  are set. The Windows driver remains ephemeral test-signed, with its matching
+  verified yet. The only local Apple Development identity expired on
+  2026-08-22; obtain a current signing identity before creating the secrets.
+  Do not tag a release expecting it to succeed until then. The Windows driver
+  remains ephemeral test-signed, with its matching
   public certificate included in each prerelease.
 
 ## Product goal
@@ -595,6 +598,12 @@ CI build must not be reported as successful split-tunneling integration.
 | IPv6 | Not started |
 
 ## Changelog
+
+- **2026-09-21 — Release signing gate checked.** GitHub repository Actions
+  currently has no secrets. The sole locally exportable Apple Development
+  identity expired on 2026-08-22, so no signing key was uploaded. A temporary
+  P12 export and its password were removed after verification. Renew the
+  certificate and configure both secrets before attempting a tag release.
 
 - **2026-09-21 — Tag-driven test prereleases.** Added a GitHub Actions release
   workflow that reuses Windows CI, signs and packages the macOS Rules-only app
