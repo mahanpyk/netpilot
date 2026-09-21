@@ -81,6 +81,16 @@ explicit Windows parity request superseded that scope note for this branch.
   is rejected by Gatekeeper on another Mac unless that development identity is
   trusted there. Portable distribution still requires Developer ID Application
   signing and notarization. The Rules-only UI reports App Routing unavailable.
+- `.github/workflows/release.yml` is the tag-triggered test-release gate.
+  `vMAJOR.MINOR.PATCH[-suffix]` tags run the existing Windows build as a reusable
+  workflow plus macOS analyze/tests and a signed Rules-only DMG build. Only
+  after both jobs succeed does it publish a GitHub prerelease with both
+  platforms' assets and SHA-256 checksums. The macOS job needs repository
+  secrets `MACOS_CERT_P12_BASE64` and `MACOS_CERT_P12_PASSWORD`; without them
+  it fails closed. Neither secrets nor a live tag run have been configured or
+  verified yet. Do not tag a release expecting it to succeed until the secrets
+  are set. The Windows driver remains ephemeral test-signed, with its matching
+  public certificate included in each prerelease.
 
 ## Product goal
 
@@ -586,6 +596,11 @@ CI build must not be reported as successful split-tunneling integration.
 
 ## Changelog
 
+- **2026-09-21 — Tag-driven test prereleases.** Added a GitHub Actions release
+  workflow that reuses Windows CI, signs and packages the macOS Rules-only app
+  from a temporary keychain, validates both asset sets, and publishes only a
+  complete prerelease. README documents the two required macOS signing secrets
+  and tag-only trigger.
 - **2026-09-21 — Internal Rules-only DMG packaging.** Added a universal macOS
   package path that omits the entitlement-gated Transparent Proxy, signs the
   app and route helper together, verifies their code signatures, and creates a

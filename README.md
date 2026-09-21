@@ -59,6 +59,44 @@ the installed LocalSystem service over its validated named-pipe API.
 
 Route changes need a signed helper (`com.netpilot.netpilotDesktop.helper`) embedded at build time (`macos/scripts/embed_helper.sh`) and installed via `SMAppService`. Approve **Login Items / Background Items** if prompted. Without a valid Team ID signature, inventory and UI still work; apply/reconcile may fail until signing is configured.
 
+## Tagged test releases
+
+Push one annotated tag such as `v0.1.0-test.1`. GitHub Actions builds macOS and
+Windows in parallel, then creates a **GitHub prerelease** with the Rules-only
+macOS DMG, Windows Setup/MSI/portable ZIP, the matching Windows driver test
+certificate, and SHA-256 checksums. Do not create the release manually. If
+either platform build fails, no release is published. Rerunning a successful
+tag workflow replaces that release's assets.
+
+Before the first tag, add these two repository secrets in GitHub → Settings →
+Secrets and variables → Actions:
+
+- `MACOS_CERT_P12_BASE64`: base64 of a `.p12` containing one Apple Development
+  signing identity and its private key.
+- `MACOS_CERT_P12_PASSWORD`: that `.p12` file's password.
+
+Keep the `.p12`, its base64 value, and password out of Git. The workflow imports
+them into a temporary CI keychain, signs the app and route helper, and deletes
+the keychain afterward. The macOS package deliberately omits the System
+Extension, so it does not require the Network Extension profile. It is still
+an **internal test build**: Apple Development signing is not Developer ID
+notarization and Gatekeeper can reject it on another Mac. The Windows driver
+is also test-signed and needs Test Mode plus the certificate from the same
+release. Neither package has completed live cross-machine acceptance.
+
+After pushing the workflow and signing secrets, create a tag from the commit
+you want to test:
+
+```bash
+git tag -a v0.1.0-test.1 -m "NetPilot test build"
+git push origin v0.1.0-test.1
+```
+
+The tag must point to a commit containing `.github/workflows/release.yml`.
+Release names accept `vMAJOR.MINOR.PATCH` with an optional suffix such as
+`-test.1`. The release remains marked as a prerelease until production signing
+and device acceptance are available.
+
 If corporate Pub mirror fails:
 
 ```bash

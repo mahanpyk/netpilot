@@ -1,6 +1,7 @@
 name: Windows test build
 
 on:
+  workflow_call:
   workflow_dispatch:
   push:
     branches:
@@ -140,14 +141,20 @@ jobs:
           Compress-Archive -Path build\windows\x64\runner\Release\* `
             -DestinationPath windows\installer\out\NetPilot-windows-x64-portable.zip -Force
 
+      - name: Stage release assets
+        shell: pwsh
+        run: |
+          $assets = Join-Path $PWD 'build\windows\release-assets'
+          New-Item -ItemType Directory -Force $assets | Out-Null
+          Copy-Item windows\installer\out\NetPilotSetup.exe $assets
+          Copy-Item windows\installer\out\NetPilot.msi $assets
+          Copy-Item windows\installer\out\NetPilot-windows-x64-portable.zip $assets
+          Copy-Item build\windows\x64\runner\Release\driver\NetPilotDriverTest.cer $assets
+
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: NetPilot-windows-x64-test
           if-no-files-found: error
           retention-days: 14
-          path: |
-            windows/installer/out/NetPilotSetup.exe
-            windows/installer/out/NetPilot.msi
-            windows/installer/out/NetPilot-windows-x64-portable.zip
-            build/windows/x64/runner/Release/driver/NetPilotDriverTest.cer
+          path: build/windows/release-assets/*

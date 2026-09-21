@@ -1,0 +1,179 @@
+name: Tagged test release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a version tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Expected a tag like v0.1.0 or v0.1.0-test.1" >&2
+            exit 1
+          fi
+
+  windows:
+    needs: validate
+    uses: ./.github/workflows/windows-build.yml
+
+  macos:
+    needs: validate
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Require signing secrets
+        env:
+          CERT_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_P12_PASSWORD }}
+        run: |
+          if [[ -z "$CERT_BASE64" || -z "$CERT_PASSWORD" ]]; then
+            echo "::error::Set MACOS_CERT_P12_BASE64 and MACOS_CERT_P12_PASSWORD repository secrets before tagging. An unsigned route helper cannot be released."
+            exit 1
+          fi
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.4
+          cache: true
+
+      - name: Enable macOS desktop and resolve dependencies
+        run: |
+          flutter config --enable-macos-desktop
+          flutter pub get
+
+      - name: Analyze and test
+        run: |
+          flutter analyze
+          flutter test
+
+      - name: Import Apple Development certificate
+        env:
+          CERT_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_P12_PASSWORD }}
+        run: |
+          CERT_PATH="$RUNNER_TEMP/netpilot-signing.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/netpilot-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          printf '%s' "$CERT_BASE64" | base64 -D > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          IDENTITIES="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | sed -nE 's/^[[:space:]]*[0-9]+\) ([0-9A-F]{40}) .*/\1/p')"
+          if [[ "$(printf '%s\n' "$IDENTITIES" | sed '/^$/d' | wc -l | tr -d ' ')" != '1' ]]; then
+            echo "::error::The P12 must contain exactly one valid code-signing identity."
+            exit 1
+          fi
+          echo "NETPILOT_SIGNING_IDENTITY=$IDENTITIES" >> "$GITHUB_ENV"
+          echo "NETPILOT_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Build and verify Rules-only DMG
+        run: macos/scripts/package_routes_test.sh
+
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetPilot-macos-rules-test
+          if-no-files-found: error
+          retention-days: 14
+          path: dist/NetPilot-Rules-Test-*.dmg
+
+      - name: Remove temporary signing keychain
+        if: always()
+        run: |
+          if [[ -n "${NETPILOT_KEYCHAIN_PATH:-}" && -f "$NETPILOT_KEYCHAIN_PATH" ]]; then
+            security delete-keychain "$NETPILOT_KEYCHAIN_PATH"
+          fi
+
+  publish:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download macOS build
+        uses: actions/download-artifact@v4
+        with:
+          name: NetPilot-macos-rules-test
+          path: release/macos
+
+      - name: Download Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: NetPilot-windows-x64-test
+          path: release/windows
+
+      - name: Validate assets and write checksums
+        shell: bash
+        run: |
+          shopt -s nullglob
+          dmgs=(release/macos/NetPilot-Rules-Test-*.dmg)
+          if (( ${#dmgs[@]} != 1 )); then
+            echo "Expected exactly one macOS DMG" >&2
+            exit 1
+          fi
+          windows=(
+            release/windows/NetPilotSetup.exe
+            release/windows/NetPilot.msi
+            release/windows/NetPilot-windows-x64-portable.zip
+            release/windows/NetPilotDriverTest.cer
+          )
+          for asset in "${windows[@]}"; do
+            test -s "$asset" || { echo "Missing or empty: $asset" >&2; exit 1; }
+          done
+          test -s "${dmgs[0]}"
+          for asset in "${dmgs[0]}" "${windows[@]}"; do
+            digest="$(sha256sum "$asset" | cut -d ' ' -f1)"
+            printf '%s  %s\n' "$digest" "$(basename "$asset")"
+          done > release/SHA256SUMS.txt
+
+      - name: Create or update GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          assets=(release/macos/*.dmg release/windows/* release/SHA256SUMS.txt)
+          cat > "$RUNNER_TEMP/netpilot-release-notes.md" <<'EOF'
+          Internal test build for macOS and Windows.
+
+          - **macOS:** Rules, dependency discovery, Sub-rules and Networks. App Routing is unavailable. The DMG is Apple Development signed, not Developer ID notarized, so Gatekeeper may reject it on another Mac. The privileged route helper still requires installation and approval on the test Mac.
+          - **Windows:** WFP driver is signed with the ephemeral test certificate included in this release. Install only on a disposable test machine in Test Mode after trusting that certificate. Live routing and installer acceptance remain pending.
+          - Verify downloaded files against `SHA256SUMS.txt`.
+          EOF
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            if [[ "$(gh release view "$RELEASE_TAG" --json isPrerelease --jq .isPrerelease)" != true ]]; then
+              echo "Refusing to replace assets on a non-prerelease" >&2
+              exit 1
+            fi
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --verify-tag --prerelease \
+              --title "NetPilot $RELEASE_TAG (test build)" \
+              --notes-file "$RUNNER_TEMP/netpilot-release-notes.md"
+          fi

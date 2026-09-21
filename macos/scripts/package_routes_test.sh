@@ -36,25 +36,31 @@ if extension_dir.is_dir() and not extension_dir.is_symlink():
     shutil.rmtree(extension_dir)
 PY
 
-# The normal helper build follows the host CPU. Add the Intel slice so this
-# test DMG can run on either supported macOS architecture.
+# The normal helper build follows the host CPU. Add the other architecture so
+# the test DMG can run on either supported macOS architecture.
 SHARED="$ROOT/macos/Runner/NetPilotShared"
 HELPER_SRC="$ROOT/macos/NetPilotHelper"
 HELPER="$APP/Contents/MacOS/NetPilotHelper"
-INTEL_HELPER="$STAGE/NetPilotHelper.x86_64"
+HOST_ARCH="$(lipo -archs "$HELPER")"
+case "$HOST_ARCH" in
+  arm64) EXTRA_ARCH=x86_64 ;;
+  x86_64) EXTRA_ARCH=arm64 ;;
+  *) echo "Unexpected helper architecture: $HOST_ARCH" >&2; exit 1 ;;
+esac
+EXTRA_HELPER="$STAGE/NetPilotHelper.$EXTRA_ARCH"
 xcrun swiftc \
-  -O -target x86_64-apple-macos14.0 -framework Foundation \
+  -O -target "$EXTRA_ARCH-apple-macos14.0" -framework Foundation \
   -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist \
   -Xlinker "$HELPER_SRC/Info.plist" \
-  -o "$INTEL_HELPER" \
+  -o "$EXTRA_HELPER" \
   "$SHARED/NetPilotXPCProtocol.swift" \
   "$SHARED/RouteSpec.swift" \
   "$SHARED/RouteManager.swift" \
   "$HELPER_SRC/HelperDelegate.swift" \
   "$HELPER_SRC/main.swift"
-lipo -create "$HELPER" "$INTEL_HELPER" -output "$STAGE/NetPilotHelper.universal"
+lipo -create "$HELPER" "$EXTRA_HELPER" -output "$STAGE/NetPilotHelper.universal"
 mv "$STAGE/NetPilotHelper.universal" "$HELPER"
-rm "$INTEL_HELPER"
+rm "$EXTRA_HELPER"
 
 for framework in "$APP"/Contents/Frameworks/*.framework; do
   codesign --force --sign "$IDENTITY" --timestamp=none "$framework"
