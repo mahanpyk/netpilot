@@ -43,8 +43,8 @@ explicit Windows parity request superseded that scope note for this branch.
   registration does not make the newer app's helper registered.
 - `systemextensionsctl list` contains no NetPilot extension. Both local bundles
   and the newer embedded Transparent Proxy have ad-hoc signatures with no Team
-  ID; strict signature verification of the newer bundle/extension fails. One
-  An older Apple Development certificate expired on 2026-08-22, but two valid
+  ID; strict signature verification of the newer bundle/extension fails. An
+  older Apple Development certificate expired on 2026-08-22, but two valid
   signing identities are now present. The new identity `9F0BA42C…` expires on
   2027-09-21 and passed a local `codesign --verify --strict` check, including
   import from an isolated P12. None of the installed
