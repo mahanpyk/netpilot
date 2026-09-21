@@ -92,11 +92,12 @@ explicit Windows parity request superseded that scope note for this branch.
   after both jobs succeed does it publish a GitHub prerelease with both
   platforms' assets and SHA-256 checksums. The macOS job needs repository
   secrets `MACOS_CERT_P12_BASE64` and `MACOS_CERT_P12_PASSWORD`; without them
-  it fails closed. Neither secrets nor a live tag run have been configured or
-  verified yet. Two current local Apple Development identities exist; export
-  exactly one (the new `9F0BA42C…` identity has been verified), because the
-  workflow requires one identity in the P12. Do not tag a release expecting it
-  to succeed until the secrets are configured. The Windows driver
+  it fails closed. Both repository secrets were added on 2026-09-21 using a
+  P12 containing only the verified `9F0BA42C…` identity; an isolated keychain
+  import and test signature passed before upload. The temporary local P12 and
+  password were deleted. No live tag workflow has run yet, and the release
+  workflow commit remains unpushed on `codex/windows-parity`; push it before
+  tagging. The Windows driver
   remains ephemeral test-signed, with its matching
   public certificate included in each prerelease.
 
@@ -604,6 +605,12 @@ CI build must not be reported as successful split-tunneling integration.
 
 ## Changelog
 
+- **2026-09-21 — macOS release secrets configured.** Added
+  `MACOS_CERT_P12_BASE64` and `MACOS_CERT_P12_PASSWORD` to GitHub Actions
+  repository secrets after explicit approval. GitHub lists both names. The P12
+  has exactly one current Apple Development identity and passed import/signing
+  checks. Local export files and password were deleted; no live tag run yet.
+
 - **2026-09-21 — New development certificate verified.** The new local
   `9F0BA42C…` identity is valid through 2027-09-21, has a private key, and
   signs successfully after an isolated PKCS#12 import. The previous expiry
@@ -612,10 +619,10 @@ CI build must not be reported as successful split-tunneling integration.
   manual Privacy & Security approval is acceptable to the owner.
 
 - **2026-09-21 — Release signing gate checked.** GitHub repository Actions
-  currently has no secrets. An initial aggregate P12 inspection selected an
+  initially had no secrets. An initial aggregate P12 inspection selected an
   expired certificate and no signing key was uploaded. That temporary export
   and password were removed; a subsequent fingerprint check found valid local
-  identities (see the newer entry above). Configure both secrets before a tag.
+  identities (see the newer entries above).
 
 - **2026-09-21 — Tag-driven test prereleases.** Added a GitHub Actions release
   workflow that reuses Windows CI, signs and packages the macOS Rules-only app
