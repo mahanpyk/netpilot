@@ -1,12 +1,39 @@
 import Foundation
+import Security
 
 final class HelperDelegate: NSObject, NSXPCListenerDelegate, NetPilotXPCProtocol {
   private let routeManager = RouteManager()
+  private let clientRequirement: String? = {
+    var ownCode: SecCode?
+    guard SecCodeCopySelf([], &ownCode) == errSecSuccess, let ownCode else {
+      return nil
+    }
+    var staticCode: SecStaticCode?
+    guard SecCodeCopyStaticCode(ownCode, [], &staticCode) == errSecSuccess,
+          let staticCode else {
+      return nil
+    }
+    var information: CFDictionary?
+    guard SecCodeCopySigningInformation(
+      staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information
+    ) == errSecSuccess,
+          let values = information as? [String: Any],
+          let team = values[kSecCodeInfoTeamIdentifier as String] as? String,
+          team.range(of: "^[A-Z0-9]{10}$", options: .regularExpression) != nil else {
+      return nil
+    }
+    return "identifier \"com.netpilot.netpilotDesktop\" and anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
+  }()
 
   func listener(
     _ listener: NSXPCListener,
     shouldAcceptNewConnection newConnection: NSXPCConnection
   ) -> Bool {
+    guard let clientRequirement else {
+      NSLog("[NetPilot] Rejecting XPC client: helper has no valid Team ID")
+      return false
+    }
+    newConnection.setCodeSigningRequirement(clientRequirement)
     newConnection.exportedInterface = NSXPCInterface(with: NetPilotXPCProtocol.self)
     newConnection.exportedObject = self
     newConnection.resume()

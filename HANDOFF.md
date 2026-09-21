@@ -72,6 +72,15 @@ explicit Windows parity request superseded that scope note for this branch.
   display cannot differ from panel3 in the same browser on a single global
   destination-route table. Per-app routing could differentiate *separate apps*
   once the signed extension is operational.
+- `macos/scripts/package_routes_test.sh` produces an internal, universal
+  Rules-only DMG. It removes the Transparent Proxy system extension, signs the
+  Runner and universal route helper with the same local Apple Development
+  identity, and verifies the bundle before packaging. The helper now restricts
+  XPC clients to `com.netpilot.netpilotDesktop` signed by its own Team ID.
+  This package is intentionally not a public release: Apple Development signing
+  is rejected by Gatekeeper on another Mac unless that development identity is
+  trusted there. Portable distribution still requires Developer ID Application
+  signing and notarization. The Rules-only UI reports App Routing unavailable.
 
 ## Product goal
 
@@ -577,6 +586,12 @@ CI build must not be reported as successful split-tunneling integration.
 
 ## Changelog
 
+- **2026-09-21 — Internal Rules-only DMG packaging.** Added a universal macOS
+  package path that omits the entitlement-gated Transparent Proxy, signs the
+  app and route helper together, verifies their code signatures, and creates a
+  compressed DMG. Restricted privileged-helper XPC access to the matching
+  NetPilot application identity and signing team. Developer ID/notarization is
+  still required before the DMG can be carried to an unrelated Mac reliably.
 - **2026-09-21 — macOS signing preflight and browser-path diagnosis.** Unsigned
   builds now explain why App Routing cannot activate. The panel3 test page
   loads its displayed IP from `ip.sheltertm.com`, which is also used by panel2;

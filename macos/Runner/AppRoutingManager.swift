@@ -177,6 +177,9 @@ final class AppRoutingManager: NSObject, OSSystemExtensionRequestDelegate {
     let extensionURL = Bundle.main.bundleURL.appendingPathComponent(
       "Contents/Library/SystemExtensions/NetPilotTransparentProxy.systemextension"
     )
+    guard FileManager.default.fileExists(atPath: extensionURL.path) else {
+      return "This Rules-only build supports Destination Rules. App Routing requires a separately signed build with approved Network Extension profiles."
+    }
     guard let appIdentity = try? inspector.codeIdentity(at: Bundle.main.bundleURL),
           let extensionIdentity = try? inspector.codeIdentity(at: extensionURL),
           appIdentity.teamIdentifier == extensionIdentity.teamIdentifier else {

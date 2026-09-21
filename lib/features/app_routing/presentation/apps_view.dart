@@ -214,7 +214,7 @@ class _ExtensionCard extends StatelessWidget {
                         : ready
                         ? 'System Extension installed'
                         : status.extensionStatus == 'signingRequired'
-                        ? 'App Routing signing required'
+                        ? 'App Routing unavailable in this build'
                         : 'System Extension setup required',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
@@ -238,7 +238,7 @@ class _ExtensionCard extends StatelessWidget {
                   windows
                       ? 'Repair setup'
                       : status.extensionStatus == 'signingRequired'
-                      ? 'Signing required'
+                      ? 'Unavailable'
                       : 'Install & Approve',
                 ),
               )
