@@ -213,6 +213,8 @@ class _ExtensionCard extends StatelessWidget {
                               : 'Windows Routing Engine setup required'
                         : ready
                         ? 'System Extension installed'
+                        : status.extensionStatus == 'signingRequired'
+                        ? 'App Routing signing required'
                         : 'System Extension setup required',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
@@ -227,8 +229,18 @@ class _ExtensionCard extends StatelessWidget {
             ),
             if (!ready)
               FilledButton(
-                onPressed: controller.busy ? null : controller.installExtension,
-                child: Text(windows ? 'Repair setup' : 'Install & Approve'),
+                onPressed:
+                    controller.busy ||
+                        status.extensionStatus == 'signingRequired'
+                    ? null
+                    : controller.installExtension,
+                child: Text(
+                  windows
+                      ? 'Repair setup'
+                      : status.extensionStatus == 'signingRequired'
+                      ? 'Signing required'
+                      : 'Install & Approve',
+                ),
               )
             else
               IconButton(

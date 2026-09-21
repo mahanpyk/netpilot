@@ -49,11 +49,29 @@ explicit Windows parity request superseded that scope note for this branch.
   Extension/System Extension entitlements. Rebuild and sign Runner, helper, and
   extension with the same Team and the required approved profile before trying
   activation. Do not interpret an unsigned Debug build as a per-app test build.
-- Current active IPv4 interfaces are Ethernet `en8` and VPN `utun6`; Wi-Fi
-  `en0` is not active. The per-app feature intentionally accepts physical
-  Wi-Fi/Ethernet, not VPN interfaces. Connect Wi-Fi as a second physical uplink
-  for the two-ISP egress gate. After a signed install, confirm extension and
-  proxy status first, then add a signed test app and verify TCP/UDP/QUIC egress.
+- Wi-Fi `en0` was subsequently connected alongside Ethernet `en8` and VPN
+  `utun6`. The per-app feature intentionally accepts physical Wi-Fi/Ethernet,
+  not VPN interfaces. After a signed install, confirm extension and proxy
+  status first, then add a signed test app and verify TCP/UDP/QUIC egress.
+- A clean build after connecting Wi-Fi found both physical interfaces. Xcode
+  could not sign the Runner or extension: Xcode reports `No Account for Team`
+  and no development provisioning profiles for either NetPilot bundle ID.
+  The two old Debug `.app` bundles were removed; one newly compiled unsigned
+  app remains at `build/macos/Build/Products/Debug/netpilot_desktop.app` and
+  runs. In this app's UI, Rules has no saved rules, Settings reports `Helper
+  not registered`, and Networks lists both `en0` and `en8`. Unsigned builds
+  now return `extensionStatus=signingRequired` with an
+  actionable message and cannot attempt activation or Apply & Restart. `flutter
+  analyze`, all 33 Flutter tests, and an unsigned Xcode Debug build pass.
+- Live checks of `ip.sheltertm.com` through `en8`, `en0`, and default VPN
+  return three distinct public addresses; the page's inline and same-origin
+  JavaScript fetch this shared hostname. `HttpDependencyScanner` discovers
+  `ip.sheltertm.com` and `user.sheltertm.com` from the panel3 page. Browser IP
+  display will follow the route for `ip.sheltertm.com`, not merely the route for
+  `panel3.sheltertm.com`. Because panel2 uses the same IP endpoint, its IP
+  display cannot differ from panel3 in the same browser on a single global
+  destination-route table. Per-app routing could differentiate *separate apps*
+  once the signed extension is operational.
 
 ## Product goal
 
@@ -559,6 +577,12 @@ CI build must not be reported as successful split-tunneling integration.
 
 ## Changelog
 
+- **2026-09-21 — macOS signing preflight and browser-path diagnosis.** Unsigned
+  builds now explain why App Routing cannot activate. The panel3 test page
+  loads its displayed IP from `ip.sheltertm.com`, which is also used by panel2;
+  the scanner discovers this dependency, but one IP cannot be routed to two
+  physical interfaces at once. Live signed egress testing still needs Xcode
+  account/profiles.
 - **2026-09-21 — macOS on-device diagnosis.** Launched both local Debug builds:
   the newer Apps build is unsigned for System Extension purposes, has no active
   NetPilot extension/proxy, and cannot yet run a real per-app egress test.

@@ -13,6 +13,14 @@ final class AppRoutingManager: NSObject, OSSystemExtensionRequestDelegate {
   private var forwardedProviderLines = Set<String>()
 
   func status(completion: @escaping ([String: Any]) -> Void) {
+    if let signingError = signingError() {
+      var payload = baseStatus()
+      payload["extensionStatus"] = "signingRequired"
+      payload["proxyStatus"] = "unconfigured"
+      payload["message"] = signingError
+      completion(payload)
+      return
+    }
     NETransparentProxyManager.loadAllFromPreferences { [weak self] managers, error in
       guard let self else { return }
       let manager = managers?.first(where: {
@@ -35,6 +43,11 @@ final class AppRoutingManager: NSObject, OSSystemExtensionRequestDelegate {
   }
 
   func requestActivation(completion: @escaping ([String: Any]) -> Void) {
+    if let signingError = signingError() {
+      log("System Extension activation unavailable: \(signingError)")
+      status(completion: completion)
+      return
+    }
     approvalRequired = false
     lastMessage = nil
     activationCompletion = completion
@@ -53,6 +66,14 @@ final class AppRoutingManager: NSObject, OSSystemExtensionRequestDelegate {
     configurationHash: String,
     completion: @escaping (Result<[String: Any], Error>) -> Void
   ) {
+    if let signingError = signingError() {
+      completion(.failure(NSError(
+        domain: "NetPilotAppRouting",
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: signingError]
+      )))
+      return
+    }
     NETransparentProxyManager.loadAllFromPreferences { [weak self] managers, loadError in
       guard let self else { return }
       if let loadError {
@@ -149,6 +170,19 @@ final class AppRoutingManager: NSObject, OSSystemExtensionRequestDelegate {
       "bytesIn": 0,
       "bytesOut": 0,
     ]
+  }
+
+  private func signingError() -> String? {
+    let inspector = AppInspector()
+    let extensionURL = Bundle.main.bundleURL.appendingPathComponent(
+      "Contents/Library/SystemExtensions/NetPilotTransparentProxy.systemextension"
+    )
+    guard let appIdentity = try? inspector.codeIdentity(at: Bundle.main.bundleURL),
+          let extensionIdentity = try? inspector.codeIdentity(at: extensionURL),
+          appIdentity.teamIdentifier == extensionIdentity.teamIdentifier else {
+      return "This build cannot activate App Routing. Sign NetPilot and its Transparent Proxy with the same Apple Developer Team and approved Network Extension profiles."
+    }
+    return nil
   }
 
   private func statusName(_ status: NEVPNStatus) -> String {
