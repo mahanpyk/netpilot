@@ -44,8 +44,10 @@ explicit Windows parity request superseded that scope note for this branch.
 - `systemextensionsctl list` contains no NetPilot extension. Both local bundles
   and the newer embedded Transparent Proxy have ad-hoc signatures with no Team
   ID; strict signature verification of the newer bundle/extension fails. One
-  Apple Development signing identity is present, but it expired on
-  2026-08-22; do not export it for the release workflow. None of the installed
+  An older Apple Development certificate expired on 2026-08-22, but two valid
+  signing identities are now present. The new identity `9F0BA42C…` expires on
+  2027-09-21 and passed a local `codesign --verify --strict` check, including
+  import from an isolated P12. None of the installed
   provisioning profiles is for NetPilot or carries the required Network
   Extension/System Extension entitlements. Rebuild and sign Runner, helper, and
   extension with the same Team and the required approved profile before trying
@@ -78,10 +80,12 @@ explicit Windows parity request superseded that scope note for this branch.
   Runner and universal route helper with the same local Apple Development
   identity, and verifies the bundle before packaging. The helper now restricts
   XPC clients to `com.netpilot.netpilotDesktop` signed by its own Team ID.
-  This package is intentionally not a public release: Apple Development signing
-  is rejected by Gatekeeper on another Mac unless that development identity is
-  trusted there. Portable distribution still requires Developer ID Application
-  signing and notarization. The Rules-only UI reports App Routing unavailable.
+  This package is intentionally not a public release. The owner has installed
+  a previous Rules-only DMG on a second Mac after approving it in Privacy &
+  Security, and accepts that manual approval for internal tests. Developer ID
+  Application signing and notarization remain future distribution improvements,
+  not a prerequisite for the accepted internal workflow. The Rules-only UI
+  reports App Routing unavailable.
 - `.github/workflows/release.yml` is the tag-triggered test-release gate.
   `vMAJOR.MINOR.PATCH[-suffix]` tags run the existing Windows build as a reusable
   workflow plus macOS analyze/tests and a signed Rules-only DMG build. Only
@@ -89,9 +93,10 @@ explicit Windows parity request superseded that scope note for this branch.
   platforms' assets and SHA-256 checksums. The macOS job needs repository
   secrets `MACOS_CERT_P12_BASE64` and `MACOS_CERT_P12_PASSWORD`; without them
   it fails closed. Neither secrets nor a live tag run have been configured or
-  verified yet. The only local Apple Development identity expired on
-  2026-08-22; obtain a current signing identity before creating the secrets.
-  Do not tag a release expecting it to succeed until then. The Windows driver
+  verified yet. Two current local Apple Development identities exist; export
+  exactly one (the new `9F0BA42C…` identity has been verified), because the
+  workflow requires one identity in the P12. Do not tag a release expecting it
+  to succeed until the secrets are configured. The Windows driver
   remains ephemeral test-signed, with its matching
   public certificate included in each prerelease.
 
@@ -599,11 +604,18 @@ CI build must not be reported as successful split-tunneling integration.
 
 ## Changelog
 
+- **2026-09-21 — New development certificate verified.** The new local
+  `9F0BA42C…` identity is valid through 2027-09-21, has a private key, and
+  signs successfully after an isolated PKCS#12 import. The previous expiry
+  diagnosis missed an additional valid identity; the older expired certificate
+  was included first in the earlier aggregate export. Internal deployment with
+  manual Privacy & Security approval is acceptable to the owner.
+
 - **2026-09-21 — Release signing gate checked.** GitHub repository Actions
-  currently has no secrets. The sole locally exportable Apple Development
-  identity expired on 2026-08-22, so no signing key was uploaded. A temporary
-  P12 export and its password were removed after verification. Renew the
-  certificate and configure both secrets before attempting a tag release.
+  currently has no secrets. An initial aggregate P12 inspection selected an
+  expired certificate and no signing key was uploaded. That temporary export
+  and password were removed; a subsequent fingerprint check found valid local
+  identities (see the newer entry above). Configure both secrets before a tag.
 
 - **2026-09-21 — Tag-driven test prereleases.** Added a GitHub Actions release
   workflow that reuses Windows CI, signs and packages the macOS Rules-only app
