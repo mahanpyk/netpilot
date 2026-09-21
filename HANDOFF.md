@@ -605,6 +605,15 @@ CI build must not be reported as successful split-tunneling integration.
 
 ## Changelog
 
+- **2026-09-21 — First tag CI packaging fix.** The `v1.0.1-test.1` release
+  run built Windows and passed Flutter checks, but macOS packaging stopped at
+  `Flutter Assemble` because clean runners lacked `macos/Flutter/ephemeral/FlutterInputs.xcfilelist`
+  and `FlutterOutputs.xcfilelist`. The Rules-only packaging script now runs
+  `flutter build macos --release --config-only` before direct `xcodebuild`.
+  Reproduce release packaging from a clean clone, since an existing local
+  `ephemeral` directory can hide this failure. The signing secrets imported
+  successfully and were not the cause.
+
 - **2026-09-21 — macOS release secrets configured.** Added
   `MACOS_CERT_P12_BASE64` and `MACOS_CERT_P12_PASSWORD` to GitHub Actions
   repository secrets after explicit approval. GitHub lists both names. The P12

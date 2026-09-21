@@ -10,6 +10,9 @@ if [[ -z "$IDENTITY" ]]; then
 fi
 
 cd "$ROOT"
+# A fresh checkout has no macos/Flutter/ephemeral input/output file lists.
+# Generate Flutter's Xcode configuration before invoking xcodebuild directly.
+flutter build macos --release --config-only
 mkdir -p build/macos dist
 xcodebuild \
   -workspace macos/Runner.xcworkspace \
