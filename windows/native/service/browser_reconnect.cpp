@@ -84,7 +84,10 @@ std::set<DWORD> UdpOwners() {
 
 bool IsKnownChromiumExecutable(const std::wstring& path) {
   std::wstring name = std::filesystem::path(path).filename().wstring();
-  std::transform(name.begin(), name.end(), name.begin(), towlower);
+  std::transform(name.begin(), name.end(), name.begin(),
+                 [](wchar_t character) {
+                   return static_cast<wchar_t>(std::towlower(character));
+                 });
   return name == L"chrome.exe" || name == L"msedge.exe" ||
          name == L"brave.exe" || name == L"opera.exe" ||
          name == L"chromium.exe" || name == L"vivaldi.exe";
