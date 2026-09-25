@@ -16,10 +16,9 @@ explicit Windows parity request superseded that scope note for this branch.
   a company Mac; that test exposed unreliable destination-route reporting,
   which is addressed by the unreleased route-verification work below.
 
-- Current local work is on `main`; `v1.0.1-test.2` is the latest published
-  test release. Windows GitHub Actions run
-  [#18](https://github.com/mahanpyk/netpilot_desktop/actions/runs/35528714065)
-  succeeded at commit `58294f8`: Flutter analyze/tests, Release app and native
+- `v1.0.1-test.2` is the latest published test release. Windows GitHub
+  Actions [run 36190194673](https://github.com/mahanpyk/netpilot/actions/runs/36190194673)
+  succeeded on `32267aa`: Flutter analyze/tests, Release app and native
   service build, CTest, WDK driver build, Inf2Cat, test signing, WiX MSI/Burn,
   portable ZIP, and artifact upload. This is a **build gate**, not evidence that
   driver installation or routing works on a live Windows machine.
