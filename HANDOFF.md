@@ -10,21 +10,25 @@ explicit Windows parity request superseded that scope note for this branch.
 
 ## Current state and next gate (2026-09-26)
 
-- Tagged prerelease `v1.0.1-test.2` completed and published macOS/Windows
-  assets from commit `90ef525`. The original repository URL redirects to the
-  current `mahanpyk/netpilot` repository. Its Rules-only DMG was exercised on
-  a company Mac; that test exposed unreliable destination-route reporting,
-  which is addressed by the unreleased route-verification work below.
+- Tagged prerelease [`v1.0.1-test.3`](https://github.com/mahanpyk/netpilot/releases/tag/v1.0.1-test.3)
+  published macOS and Windows test assets from `75a5665`. `develop` and
+  `main` both point to this commit. The repository's former
+  `mahanpyk/netpilot_desktop` URL redirects to `mahanpyk/netpilot`.
+  The previous Rules-only DMG was exercised on a company Mac; this release
+  contains the route verification and browser reconnect work prompted by
+  that test.
 
-- `v1.0.1-test.2` is the latest published test release. Windows GitHub
-  Actions [run 36190194673](https://github.com/mahanpyk/netpilot/actions/runs/36190194673)
-  succeeded on `32267aa`: Flutter analyze/tests, Release app and native
-  service build, CTest, WDK driver build, Inf2Cat, test signing, WiX MSI/Burn,
-  portable ZIP, and artifact upload. This is a **build gate**, not evidence that
+- Tagged release [run 36190902897](https://github.com/mahanpyk/netpilot/actions/runs/36190902897)
+  passed macOS analyze/tests and signed Rules-only DMG packaging, plus Windows
+  Flutter analyze/tests, Release app and native service build, CTest, WDK
+  driver build, Inf2Cat, test signing, WiX MSI/Burn, portable ZIP, and asset
+  publication. This is a **build gate**, not evidence that
   driver installation or routing works on a live Windows machine.
-- The `NetPilot-windows-x64-test` Actions artifact contains `NetPilotSetup.exe`,
-  `NetPilot.msi`, the portable ZIP, and `NetPilotDriverTest.cer`. It expires
-  after 14 days. Each CI run creates a new signing certificate; use the `.cer`
+- The release and `NetPilot-windows-x64-test` Actions artifact contain
+  `NetPilotSetup.exe`, `NetPilot.msi`, the portable ZIP, and
+  `NetPilotDriverTest.cer`. The Actions artifact expires after 14 days;
+  release assets do not. Each CI run creates a new signing certificate; use
+  the `.cer`
   from the same artifact as its installer. See `windows/README.md` for Test Mode
   and certificate trust steps. Use a disposable Windows VM or test machine;
   this is not a production release.
@@ -656,6 +660,10 @@ CI build must not be reported as successful split-tunneling integration.
 | IPv6 | Not started |
 
 ## Changelog
+
+- **2026-09-26 — Test release v1.0.1-test.3.** Both platform build jobs and
+  prerelease publication passed; live Windows route and WFP acceptance remains
+  the next gate.
 
 - **2026-09-26 — Windows destination-route parity source.** The Windows
   service checks kernel routes, repairs missing managed entries, reports
