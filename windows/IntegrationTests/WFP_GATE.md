@@ -24,6 +24,13 @@ on Windows 11 and is repeated on the physical Windows 10 22H2 PC.
    network flap, and a 60-minute mixed TCP/UDP/QUIC stress run.
 10. Enable Driver Verifier for `NetPilotWfp.sys`, rerun the traffic suite, then
     disable it before restoring the snapshot.
+11. In Chrome/Edge, keep a page with a long-lived HTTP/2 connection open. Add,
+    toggle, change interface, and delete its destination rule. Confirm the
+    browser window remains open, the public IP changes without relaunching it,
+    and Rules Diagnostics reports the expected/actual adapter and restarted
+    network-service PID. Repeat with QUIC/HTTP3 while a UDP socket is active.
+    Remove a managed route externally, reconcile again, and verify the service
+    repairs it and reports the kernel check. Repeat this gate on Windows 10.
 
 Capture `Get-NetRoute`, `Get-NetAdapter`, public IP responses, Event Viewer logs,
 and the in-app diagnostics for the acceptance record. Payload bytes must never

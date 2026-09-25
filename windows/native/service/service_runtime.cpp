@@ -12,6 +12,7 @@
 #include <iomanip>
 
 #include "../common/driver_control.h"
+#include "browser_reconnect.h"
 
 namespace {
 
@@ -236,8 +237,13 @@ bool ServiceRuntime::ServeClient(HANDLE pipe) {
       !ReadAll(pipe, payload.data(), header.payload_size)) {
     return false;
   }
-  const auto response =
-      Dispatch(static_cast<netpilot::Operation>(header.operation), payload);
+  ULONG client_pid = 0;
+  DWORD client_session = 0xffffffffu;
+  if (GetNamedPipeClientProcessId(pipe, &client_pid))
+    ProcessIdToSessionId(client_pid, &client_session);
+  const auto response = Dispatch(
+      static_cast<netpilot::Operation>(header.operation), payload,
+      client_session);
   header.payload_size = static_cast<uint32_t>(response.size());
   return WriteAll(pipe, &header, sizeof(header)) &&
          (response.empty() ||
@@ -245,7 +251,8 @@ bool ServiceRuntime::ServeClient(HANDLE pipe) {
 }
 
 std::vector<uint8_t> ServiceRuntime::Dispatch(
-    netpilot::Operation operation, const std::vector<uint8_t>& payload) {
+    netpilot::Operation operation, const std::vector<uint8_t>& payload,
+    uint32_t client_session) {
   netpilot::BufferWriter writer;
   if (operation == netpilot::Operation::kPing ||
       operation == netpilot::Operation::kStatus) {
@@ -259,6 +266,21 @@ std::vector<uint8_t> ServiceRuntime::Dispatch(
     } else {
       std::scoped_lock lock(mutex_);
       result = routes_.Reconcile(desired);
+      if (!result.connection_reset_destinations.empty()) {
+        std::string warning;
+        result.restarted_processes = BrowserReconnect::Reconnect(
+            result.connection_reset_destinations, client_session, &warning);
+        if (!warning.empty()) diagnostics_.Log("[NetPilot] " + warning);
+        for (const auto& process : result.restarted_processes)
+          diagnostics_.Log("[NetPilot] Reconnected browser networking: " +
+                           process.name + " (PID " +
+                           std::to_string(process.pid) + ")");
+      }
+      for (const auto& check : result.route_checks)
+        diagnostics_.Log("[NetPilot] Route check " + check.destination +
+                         " expected=" + check.expected_interface +
+                         " actual=" + check.actual_interface +
+                         (check.verified ? " verified" : " FAILED " + check.message));
       diagnostics_.Log("Route reconcile desired=" +
                        std::to_string(desired.size()) + " added=" +
                        std::to_string(result.added) + " removed=" +

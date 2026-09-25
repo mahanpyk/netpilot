@@ -8,7 +8,7 @@ here. Consolidate routine fixes into milestones; use Git history for details.
 The original `AGENTS.md` says Windows is deferred, but the user's later
 explicit Windows parity request superseded that scope note for this branch.
 
-## Current state and next gate (2026-09-25)
+## Current state and next gate (2026-09-26)
 
 - Tagged prerelease `v1.0.1-test.2` completed and published macOS/Windows
   assets from commit `90ef525`. The original repository URL redirects to the
@@ -35,6 +35,18 @@ explicit Windows parity request superseded that scope note for this branch.
   block/fallback, coexistence with destination rules, restart, and lifecycle
   tests. Repeat acceptance on physical Windows 10/11. Fix failures before
   calling Windows parity complete.
+- Windows destination reconciliation now returns the same route-check and
+  browser-reconnect fields as macOS. The LocalSystem service checks the exact
+  CIDR in the kernel table and the effective adapter/gateway, repairs a stale
+  inventory entry, and reports a failed check instead of claiming Applied.
+  On changed destinations it restarts only a session-local Chromium network
+  service identified by a known browser executable and WMI command-line
+  marker. TCP peers are matched to changed CIDRs; Windows does not expose
+  remote UDP peers through GetExtendedUdpTable, so an active Chromium
+  network service with a UDP socket is restarted on any destination change to
+  refresh QUIC. The modified Windows C++ files pass cross-target syntax
+  checks but still need the live VM gate, including browser HTTP/2 and QUIC
+  switch tests.
 - macOS per-app System Extension still needs a Team/profile with Network
   Extension entitlement and signed live testing. Unsigned build/unit tests are
   not a substitute for that gate.
@@ -396,8 +408,9 @@ The XPC result reports the reset destinations and restarted PID/name pairs.
 
 ### Windows service protocol
 
-- Pipe: `\\.\pipe\NetPilotService.v1`; 12-byte magic/version/operation/length
-  header followed by a bounded binary payload (4 MB maximum).
+- Pipe: `\\.\pipe\NetPilotService.v2`; protocol version 2. The 12-byte
+  magic/version/operation/length header precedes a bounded binary payload
+  (4 MB maximum).
 - Fixed operations: `ping`, `status`, `reconcileRoutes`, `applyAppRouting`,
   `restartProxy`, `diagnostics`, and installer-only `cleanup`.
 - Pipe ACL permits LocalSystem, Administrators, and interactive users. The
@@ -578,6 +591,12 @@ CI build must not be reported as successful split-tunneling integration.
   because doing so would close the application. Browser Secure DNS can resolve
   a different CDN address than system DNS. IPv6 browser traffic remains outside
   the IPv4-only MVP and will not match these routes.
+- Windows browser reconnect uses a WMI-confirmed Chromium network-service
+  subprocess in the requesting user's session. Since the documented UDP owner
+  table has no remote IP, changing any destination may briefly reconnect all
+  HTTP/2/QUIC sessions in a Chromium browser with an active UDP endpoint.
+  Windows Firefox is not automatically restarted. Live behavior still needs
+  validation on Windows 10/11.
 - macOS `resolveHost` uses system DNS. The Windows bridge requests DNS on the
   selected interface; live validation with split adapters is still pending.
 - Helper install needs code signing + user Login Items approval.
@@ -632,12 +651,18 @@ CI build must not be reported as successful split-tunneling integration.
 | Per-app UI, persistence, native bridge, System Extension | Done (signed integration pending Team/profile) |
 | Desktop UI | Done |
 | Windows Flutter models/UI/native bridge | Done |
-| Windows inventory/DNS/destination routes | Compiles in CI; live routing/integration pending |
+| Windows inventory/DNS/destination routes | Route check/repair and browser reconnect source added; live routing/integration pending |
 | Windows WFP driver/service/TCP-UDP relay | Implemented, including secured service-PID registration and TCP/UDP redirect-record propagation; signed integration gate pending |
 | Windows WiX installer and test-sign scripts | MSI/Burn and portable ZIP build in CI; install/repair/upgrade/uninstall pending on VM |
 | IPv6 | Not started |
 
 ## Changelog
+
+- **2026-09-26 — Windows destination-route parity source.** The Windows
+  service checks kernel routes, repairs missing managed entries, reports
+  expected/actual routing through the version-2 pipe and Flutter bridge, and
+  refreshes verified Chromium network-service subprocesses after destination
+  changes. Windows live testing remains required before declaring parity.
 
 - **2026-09-25 — Immediate Safari/Chromium route switching.** Successful
   destination-route add, remove, toggle, and interface changes now locate

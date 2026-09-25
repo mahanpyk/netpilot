@@ -31,7 +31,8 @@ class ServiceRuntime {
   bool ServeClient(HANDLE pipe);
   bool AuthorizeClient(HANDLE pipe, std::string* error) const;
   std::vector<uint8_t> Dispatch(netpilot::Operation operation,
-                                const std::vector<uint8_t>& payload);
+                                const std::vector<uint8_t>& payload,
+                                uint32_t client_session);
   netpilot::ServiceStatus Status(const std::string& message = {}) const;
   bool ValidateRules(const std::vector<netpilot::AppRuleSpec>& rules,
                      std::string* error) const;

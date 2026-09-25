@@ -25,6 +25,9 @@ The test-signed package is only for Test Mode development. Public distribution
 requires a production certificate and Microsoft Hardware Dashboard signing.
 Run the mandatory [WFP integration gate](IntegrationTests/WFP_GATE.md) before
 enabling Windows app routing for acceptance.
+Destination-route parity also requires the browser reconnect and kernel-route
+verification steps in that gate. The service and Runner must be upgraded
+together because their named-pipe contract is version 2.
 
 ## CI test package
 

@@ -416,7 +416,7 @@ class NetPilotController extends ChangeNotifier {
           'Reconnected browser networking: ${result.restartedProcesses.map((process) => '${process.name} (${process.pid})').join(', ')}',
         if (result.connectionResetDestinations.isNotEmpty &&
             result.restartedProcesses.isEmpty)
-          'No active Safari/Chromium network service matched the changed destinations: ${result.connectionResetDestinations.join(', ')}',
+          'No browser network service was restarted for changed destinations: ${result.connectionResetDestinations.join(', ')}',
       ];
       debugPrint(
         '[NetPilot] Route reconcile: '

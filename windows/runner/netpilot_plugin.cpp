@@ -212,11 +212,37 @@ void NetPilotPlugin::HandleNetworkCall(
       std::cerr << "[NetPilot] Route reconcile failed: " << error << std::endl;
       response.errors.push_back(error);
     }
+    List checks;
+    for (const auto& check : response.route_checks) {
+      checks.emplace_back(Map{
+          {Value("destination"), Value(check.destination)},
+          {Value("expectedInterface"), Value(check.expected_interface)},
+          {Value("expectedGateway"), check.expected_gateway.empty()
+                                         ? Value() : Value(check.expected_gateway)},
+          {Value("actualInterface"), check.actual_interface.empty()
+                                       ? Value() : Value(check.actual_interface)},
+          {Value("actualGateway"), check.actual_gateway.empty()
+                                     ? Value() : Value(check.actual_gateway)},
+          {Value("verified"), Value(check.verified)},
+          {Value("message"), check.message.empty()
+                                   ? Value() : Value(check.message)},
+      });
+    }
+    List restarted;
+    for (const auto& process : response.restarted_processes)
+      restarted.emplace_back(Map{
+          {Value("pid"), Value(static_cast<int32_t>(process.pid))},
+          {Value("name"), Value(process.name)},
+      });
     result->Success(Value(Map{
         {Value("ok"), Value(response.ok)},
         {Value("added"), Value(static_cast<int32_t>(response.added))},
         {Value("removed"), Value(static_cast<int32_t>(response.removed))},
         {Value("errors"), StringList(response.errors)},
+        {Value("routeChecks"), Value(checks)},
+        {Value("connectionResetDestinations"),
+         StringList(response.connection_reset_destinations)},
+        {Value("restartedProcesses"), Value(restarted)},
     }));
     return;
   }

@@ -16,6 +16,8 @@ class RouteManager {
  private:
   bool Add(const netpilot::RouteSpec& route, std::string* error);
   bool Remove(const netpilot::RouteSpec& route, std::string* error);
+  netpilot::ReconcileResult::RouteCheck Inspect(
+      const netpilot::RouteSpec& route) const;
   void Load();
   void Save() const;
   std::wstring state_path_;

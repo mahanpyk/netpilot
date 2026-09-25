@@ -55,6 +55,29 @@ int main() {
   Check(!netpilot::IsValidAppRule(decoded_apps[0], &error),
         "invalid policy should fail validation");
 
+  netpilot::ReconcileResult reconcile;
+  reconcile.ok = true;
+  reconcile.added = 1;
+  reconcile.route_checks.push_back({"203.0.113.10/32", "123456",
+                                    "192.168.8.1", "123456",
+                                    "192.168.8.1", true, true, ""});
+  reconcile.connection_reset_destinations.push_back("203.0.113.10/32");
+  reconcile.restarted_processes.push_back({424, "chrome.exe Network Service"});
+  netpilot::BufferWriter reconcile_writer;
+  netpilot::EncodeReconcileResult(reconcile, &reconcile_writer);
+  netpilot::BufferReader reconcile_reader(reconcile_writer.bytes());
+  netpilot::ReconcileResult decoded_reconcile;
+  Check(netpilot::DecodeReconcileResult(&reconcile_reader, &decoded_reconcile),
+        "reconcile response should decode");
+  Check(decoded_reconcile.ok && decoded_reconcile.added == 1 &&
+            decoded_reconcile.route_checks.size() == 1 &&
+            decoded_reconcile.route_checks[0].exact_present &&
+            decoded_reconcile.route_checks[0].verified &&
+            decoded_reconcile.connection_reset_destinations.size() == 1 &&
+            decoded_reconcile.restarted_processes.size() == 1 &&
+            decoded_reconcile.restarted_processes[0].pid == 424,
+        "route verification and browser refresh should round trip");
+
   std::cout << "NetPilot protocol tests passed\n";
   return 0;
 }

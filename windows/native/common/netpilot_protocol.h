@@ -8,8 +8,8 @@
 namespace netpilot {
 
 constexpr uint32_t kProtocolMagic = 0x4E504C54;  // NPLT
-constexpr uint16_t kProtocolVersion = 1;
-constexpr wchar_t kPipeName[] = L"\\\\.\\pipe\\NetPilotService.v1";
+constexpr uint16_t kProtocolVersion = 2;
+constexpr wchar_t kPipeName[] = L"\\\\.\\pipe\\NetPilotService.v2";
 constexpr uint32_t kMaxFrameBytes = 4 * 1024 * 1024;
 
 enum class Operation : uint16_t {
@@ -74,10 +74,27 @@ struct ServiceStatus {
 };
 
 struct ReconcileResult {
+  struct RouteCheck {
+    std::string destination;
+    std::string expected_interface;
+    std::string expected_gateway;
+    std::string actual_interface;
+    std::string actual_gateway;
+    bool exact_present = false;
+    bool verified = false;
+    std::string message;
+  };
+  struct RestartedProcess {
+    uint32_t pid = 0;
+    std::string name;
+  };
   bool ok = false;
   uint32_t added = 0;
   uint32_t removed = 0;
   std::vector<std::string> errors;
+  std::vector<RouteCheck> route_checks;
+  std::vector<std::string> connection_reset_destinations;
+  std::vector<RestartedProcess> restarted_processes;
 };
 
 class BufferWriter {

@@ -201,6 +201,25 @@ void EncodeReconcileResult(const ReconcileResult& result,
   writer->WriteU32(result.removed);
   writer->WriteU32(static_cast<uint32_t>(result.errors.size()));
   for (const auto& error : result.errors) writer->WriteString(error);
+  writer->WriteU32(static_cast<uint32_t>(result.route_checks.size()));
+  for (const auto& check : result.route_checks) {
+    writer->WriteString(check.destination);
+    writer->WriteString(check.expected_interface);
+    writer->WriteString(check.expected_gateway);
+    writer->WriteString(check.actual_interface);
+    writer->WriteString(check.actual_gateway);
+    writer->WriteU8(check.exact_present ? 1 : 0);
+    writer->WriteU8(check.verified ? 1 : 0);
+    writer->WriteString(check.message);
+  }
+  writer->WriteU32(static_cast<uint32_t>(result.connection_reset_destinations.size()));
+  for (const auto& destination : result.connection_reset_destinations)
+    writer->WriteString(destination);
+  writer->WriteU32(static_cast<uint32_t>(result.restarted_processes.size()));
+  for (const auto& process : result.restarted_processes) {
+    writer->WriteU32(process.pid);
+    writer->WriteString(process.name);
+  }
 }
 
 bool DecodeReconcileResult(BufferReader* reader, ReconcileResult* result) {
@@ -216,6 +235,36 @@ bool DecodeReconcileResult(BufferReader* reader, ReconcileResult* result) {
     std::string error;
     if (!reader->ReadString(&error)) return false;
     result->errors.push_back(std::move(error));
+  }
+  if (!reader->ReadU32(&count) || count > 4096) return false;
+  for (uint32_t i = 0; i < count; ++i) {
+    ReconcileResult::RouteCheck check;
+    uint8_t exact_present = 0;
+    uint8_t verified = 0;
+    if (!reader->ReadString(&check.destination) ||
+        !reader->ReadString(&check.expected_interface) ||
+        !reader->ReadString(&check.expected_gateway) ||
+        !reader->ReadString(&check.actual_interface) ||
+        !reader->ReadString(&check.actual_gateway) ||
+        !reader->ReadU8(&exact_present) ||
+        !reader->ReadU8(&verified) || !reader->ReadString(&check.message))
+      return false;
+    check.exact_present = exact_present != 0;
+    check.verified = verified != 0;
+    result->route_checks.push_back(std::move(check));
+  }
+  if (!reader->ReadU32(&count) || count > 4096) return false;
+  for (uint32_t i = 0; i < count; ++i) {
+    std::string destination;
+    if (!reader->ReadString(&destination)) return false;
+    result->connection_reset_destinations.push_back(std::move(destination));
+  }
+  if (!reader->ReadU32(&count) || count > 4096) return false;
+  for (uint32_t i = 0; i < count; ++i) {
+    ReconcileResult::RestartedProcess process;
+    if (!reader->ReadU32(&process.pid) || !reader->ReadString(&process.name))
+      return false;
+    result->restarted_processes.push_back(std::move(process));
   }
   return reader->done();
 }
