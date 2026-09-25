@@ -35,6 +35,8 @@ class ApplyRoutesResult {
     required this.removed,
     required this.errors,
     this.routeChecks = const [],
+    this.connectionResetDestinations = const [],
+    this.restartedProcesses = const [],
   });
 
   final bool ok;
@@ -42,6 +44,8 @@ class ApplyRoutesResult {
   final int removed;
   final List<String> errors;
   final List<RouteCheckResult> routeChecks;
+  final List<String> connectionResetDestinations;
+  final List<RestartedNetworkProcess> restartedProcesses;
 
   factory ApplyRoutesResult.fromMap(Map<Object?, Object?> map) {
     return ApplyRoutesResult(
@@ -58,8 +62,34 @@ class ApplyRoutesResult {
                 RouteCheckResult.fromMap(Map<Object?, Object?>.from(value)),
           )
           .toList(),
+      connectionResetDestinations:
+          (map['connectionResetDestinations'] as List<dynamic>? ?? const [])
+              .map((value) => value.toString())
+              .toList(),
+      restartedProcesses:
+          (map['restartedProcesses'] as List<dynamic>? ?? const [])
+              .whereType<Map>()
+              .map(
+                (value) => RestartedNetworkProcess.fromMap(
+                  Map<Object?, Object?>.from(value),
+                ),
+              )
+              .toList(),
     );
   }
+}
+
+class RestartedNetworkProcess {
+  const RestartedNetworkProcess({required this.pid, required this.name});
+
+  final int pid;
+  final String name;
+
+  factory RestartedNetworkProcess.fromMap(Map<Object?, Object?> map) =>
+      RestartedNetworkProcess(
+        pid: map['pid'] as int? ?? 0,
+        name: map['name']?.toString() ?? 'Browser network service',
+      );
 }
 
 class RouteCheckResult {

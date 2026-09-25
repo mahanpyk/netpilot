@@ -343,7 +343,7 @@ Runtime flow/byte/error metrics are returned separately by the provider.
 | `resolveHost` | `{ host, interfaceId? }` | `{ ips: List<String> }` |
 | `getHelperStatus` | — | `{ installed, enabled, status, message? }` |
 | `installHelper` | — | status map (+ `ok` when possible) |
-| `reconcileRoutes` | `{ desired: List<RouteSpec> }` | `{ ok, added, removed, errors, routeChecks }` |
+| `reconcileRoutes` | `{ desired: List<RouteSpec> }` | `{ ok, added, removed, errors, routeChecks, connectionResetDestinations, restartedProcesses }` |
 | `windowAction` | `{ action: close, minimize, or zoom }` | — |
 
 ### EventChannel: `com.netpilot.netpilotDesktop/networkEvents`
@@ -383,6 +383,16 @@ optional message. The helper verifies every desired route after reconciliation.
 If the persisted inventory claims a route that disappeared from the kernel
 (notably after reboot), it re-adds and re-checks it instead of treating the
 JSON inventory as proof that routing is active.
+
+After a verified add/repair or successful removal, the helper enumerates active
+TCP and UDP sockets with fixed `/usr/sbin/lsof` arguments and matches their
+remote IPv4 address against only the changed CIDRs. It reads each candidate's
+command with fixed `/bin/ps` arguments and sends `SIGTERM` only when the process
+is Safari's `com.apple.WebKit.Networking` or a Chromium
+`network.mojom.NetworkService`. This closes reused HTTP/2 and QUIC sockets while
+the browser and its tabs stay open; the browser recreates its network service
+and connects through the new route. Ordinary app processes are never signaled.
+The XPC result reports the reset destinations and restarted PID/name pairs.
 
 ### Windows service protocol
 
@@ -462,7 +472,8 @@ reapplies rules after a successful ping.
   exceptions to the `flutter run` terminal with the `[NetPilot]` prefix. Rules
   are marked Applied only after native route verification, and the Rules
   Diagnostics panel shows expected versus actual interface/gateway so packaged
-  builds can be diagnosed without a Flutter terminal.
+  builds can be diagnosed without a Flutter terminal. It also reports which
+  Safari/Chromium network service was restarted after a route mutation.
 - Dependency discovery writes scanned URLs, discovered hosts, failures, and
   route conflicts to the terminal with the same prefix.
 - Apps shows extension/proxy state, master switch, signed `.app` picker,
@@ -560,11 +571,13 @@ CI build must not be reported as successful split-tunneling integration.
 - Hostname → IP: CDN/shared IPs may mis-route unrelated hosts.
 - Dependency discovery is static: computed runtime URLs, browser-only requests,
   authenticated content, and URLs hidden by obfuscated JavaScript may be missed.
-- Destination routes affect new traffic. Browsers can reuse established
-  HTTP/2 or QUIC/HTTP/3 connections that were opened before a rule changed;
-  fully quit and reopen the browser for an acceptance check. Browser Secure DNS
-  can also resolve a different CDN address than system DNS. IPv6 browser
-  traffic remains outside the IPv4-only MVP and will not match these routes.
+- Safari and Chromium are forced to rebuild their networking service when an
+  active socket matches a changed destination. This briefly reconnects all
+  sessions owned by that browser network service. Firefox and applications
+  whose sockets live in their main process are not terminated automatically,
+  because doing so would close the application. Browser Secure DNS can resolve
+  a different CDN address than system DNS. IPv6 browser traffic remains outside
+  the IPv4-only MVP and will not match these routes.
 - macOS `resolveHost` uses system DNS. The Windows bridge requests DNS on the
   selected interface; live validation with split adapters is still pending.
 - Helper install needs code signing + user Login Items approval.
@@ -594,6 +607,7 @@ CI build must not be reported as successful split-tunneling integration.
 | URL handling | Hostname only | No TLS MITM |
 | URL dependencies | Static HTML/JS scan on Save | Finds related hosts without intercepting browser traffic |
 | Route conflicts | Block exact CIDR across interfaces | macOS cannot install one destination through two gateways |
+| Browser reconnect | Restart matching WebKit/Chromium network service | Rebuilds TCP/HTTP2 and UDP/QUIC sockets without closing browser windows |
 | Helper embed | Build-phase `swiftc` | Avoid fragile extra Xcode target with Flutter/Pods |
 | Per-app routing | `NETransparentProxyProvider` System Extension | Supports unmanaged personal Macs; App Proxy configuration otherwise requires MDM |
 | App identity | Exact signing identifier + Team ID | Stable identity without unsafe PID-only matching |
@@ -624,6 +638,14 @@ CI build must not be reported as successful split-tunneling integration.
 | IPv6 | Not started |
 
 ## Changelog
+
+- **2026-09-25 — Immediate Safari/Chromium route switching.** Successful
+  destination-route add, remove, toggle, and interface changes now locate
+  active TCP/UDP sockets for the changed IPv4 CIDRs and restart only matching
+  WebKit or Chromium network-service subprocesses. This forces HTTP/2 and QUIC
+  to reconnect through the new route without closing browser windows. XPC,
+  Dart diagnostics, README, and native tests cover reset destinations, safe
+  process validation, and restarted PID/name reporting.
 
 - **2026-09-25 — Kernel route verification and self-repair.** macOS route
   reconciliation now checks every desired CIDR with `/sbin/route -n get`,

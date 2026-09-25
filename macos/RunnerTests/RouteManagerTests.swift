@@ -38,14 +38,23 @@ final class RouteSpecTests: XCTestCase {
 final class MockRunner: CommandRunning {
   var calls: [(String, [String])] = []
   var throwWhenDeletingMissingRoute = false
+  var socketListing = ""
+  var processCommands: [Int32: String] = [:]
   private var routes: [String: (gateway: String?, interfaceName: String)] = [:]
 
   var mutationCalls: [(String, [String])] {
-    calls.filter { $0.1.count > 1 && $0.1[1] != "get" }
+    calls.filter {
+      $0.0 == "/sbin/route" && $0.1.count > 1 && $0.1[1] != "get"
+    }
   }
 
   func run(_ launchPath: String, arguments: [String]) throws -> String {
     calls.append((launchPath, arguments))
+    if launchPath == "/usr/sbin/lsof" { return socketListing }
+    if launchPath == "/bin/ps", arguments.count > 1,
+       let pid = Int32(arguments[1]) {
+      return processCommands[pid] ?? ""
+    }
     guard arguments.count > 2 else { return "" }
     switch arguments[1] {
     case "add":
@@ -212,6 +221,42 @@ final class RouteManagerTests: XCTestCase {
     XCTAssertEqual(result.removed, 1)
     XCTAssertTrue(result.errors.isEmpty)
     XCTAssertTrue(RouteManager(runner: runner, storeURL: store).managedDictionaries().isEmpty)
+  }
+
+  func testChangedRouteRestartsOnlySafeBrowserNetworkServices() throws {
+    let runner = MockRunner()
+    runner.socketListing = [
+      "p424\0cGoogle Chrome Helper\0f12\0n192.168.1.2:50100->203.0.113.44:443\0",
+      "p425\0cOtherApp\0f13\0n192.168.1.2:50101->203.0.113.44:443\0",
+    ].joined(separator: "\n")
+    runner.processCommands = [
+      424: "/Applications/Google Chrome Helper --type=utility --utility-sub-type=network.mojom.NetworkService",
+      425: "/Applications/OtherApp.app/Contents/MacOS/OtherApp",
+    ]
+    var signals: [(pid_t, Int32)] = []
+    let dir = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let manager = RouteManager(
+      runner: runner,
+      storeURL: dir.appendingPathComponent("managed.json"),
+      signalProcess: { pid, signal in
+        signals.append((pid, signal))
+        return 0
+      }
+    )
+    let spec = RouteSpec(
+      destination: "203.0.113.0/24", gateway: "10.0.0.1",
+      interfaceName: "en8", tag: "netpilot:browser"
+    )
+
+    let result = manager.reconcile(desired: [spec])
+
+    XCTAssertEqual(signals.count, 1)
+    XCTAssertEqual(signals.first?.0, 424)
+    XCTAssertEqual(signals.first?.1, SIGTERM)
+    XCTAssertEqual(result.restartedProcesses.map(\.pid), [424])
   }
 
 }

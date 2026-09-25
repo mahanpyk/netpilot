@@ -13,6 +13,9 @@ Split routing for developers on dual networks (Wi‑Fi for internet + LAN for in
 4. Scans saved URLs for related HTML/JavaScript hosts and adds them as expandable, independently switchable Sub-rules on the same interface.
 5. Pins selected macOS applications or Windows Win32 EXEs and reviewed helpers
    to a physical interface with block/fallback behavior.
+6. On macOS, forces active Safari and Chromium networking services to reconnect
+   after a destination route changes, so open tabs use the new route without
+   quitting the whole browser.
 
 ## Requirements
 
@@ -58,6 +61,12 @@ the installed LocalSystem service over its validated named-pipe API.
 ## Privileged helper
 
 Route changes need a signed helper (`com.netpilot.netpilotDesktop.helper`) embedded at build time (`macos/scripts/embed_helper.sh`) and installed via `SMAppService`. Approve **Login Items / Background Items** if prompted. Without a valid Team ID signature, inventory and UI still work; apply/reconcile may fail until signing is configured.
+
+After a successful route mutation, the helper finds network-service processes
+with active sockets to the changed IPv4 destinations. It sends `SIGTERM` only
+to Safari's WebKit networking process or a Chromium Network Service; those
+services restart automatically while browser windows and tabs remain open.
+Other applications are never terminated by this reconnect step.
 
 ## Tagged test releases
 

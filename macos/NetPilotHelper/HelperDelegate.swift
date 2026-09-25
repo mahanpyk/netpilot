@@ -75,6 +75,8 @@ final class HelperDelegate: NSObject, NSXPCListenerDelegate, NetPilotXPCProtocol
       "removed": result.removed,
       "errors": errors + result.errors,
       "routeChecks": result.routeChecks.map(\.dictionary),
+      "connectionResetDestinations": result.connectionResetDestinations,
+      "restartedProcesses": result.restartedProcesses.map(\.dictionary),
     ] as NSDictionary)
   }
 }

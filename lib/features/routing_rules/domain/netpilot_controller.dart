@@ -412,14 +412,20 @@ class NetPilotController extends ChangeNotifier {
               '${check.expectedGateway == null ? '' : ' via ${check.expectedGateway}'})'
               '${check.message == null ? '' : '\n  ${check.message}'}',
         for (final error in result.errors) 'Error: $error',
-        if (desired.isNotEmpty) 'Browser check: fully quit and reopen the browser after a route change; existing HTTP/2 or HTTP/3 connections can keep the previous path.',
+        if (result.restartedProcesses.isNotEmpty)
+          'Reconnected browser networking: ${result.restartedProcesses.map((process) => '${process.name} (${process.pid})').join(', ')}',
+        if (result.connectionResetDestinations.isNotEmpty &&
+            result.restartedProcesses.isEmpty)
+          'No active Safari/Chromium network service matched the changed destinations: ${result.connectionResetDestinations.join(', ')}',
       ];
       debugPrint(
         '[NetPilot] Route reconcile: '
         'desired=${desired.map((route) => route.toMap()).toList()} '
         'added=${result.added} removed=${result.removed} '
         'ok=${result.ok} errors=${result.errors} '
-        'checks=${result.routeChecks.map((check) => {'destination': check.destination, 'expectedInterface': check.expectedInterface, 'expectedGateway': check.expectedGateway, 'actualInterface': check.actualInterface, 'actualGateway': check.actualGateway, 'verified': check.verified}).toList()}',
+        'checks=${result.routeChecks.map((check) => {'destination': check.destination, 'expectedInterface': check.expectedInterface, 'expectedGateway': check.expectedGateway, 'actualInterface': check.actualInterface, 'actualGateway': check.actualGateway, 'verified': check.verified}).toList()} '
+        'restartedProcesses=${result.restartedProcesses.map((process) => {'pid': process.pid, 'name': process.name}).toList()} '
+        'resetDestinations=${result.connectionResetDestinations}',
       );
       _rules = _rules.map((rule) {
         if (!rule.enabled) {

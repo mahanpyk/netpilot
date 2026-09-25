@@ -6,6 +6,23 @@ import 'package:netpilot_desktop/features/routing_rules/data/rules_repository.da
 import 'package:netpilot_desktop/features/routing_rules/domain/netpilot_controller.dart';
 
 void main() {
+  test('apply result decodes browser reconnect diagnostics', () {
+    final result = ApplyRoutesResult.fromMap({
+      'ok': true,
+      'added': 1,
+      'removed': 0,
+      'errors': <String>[],
+      'connectionResetDestinations': ['203.0.113.44/32'],
+      'restartedProcesses': [
+        {'pid': 424, 'name': 'Google Chrome Helper'},
+      ],
+    });
+
+    expect(result.connectionResetDestinations, ['203.0.113.44/32']);
+    expect(result.restartedProcesses.single.pid, 424);
+    expect(result.restartedProcesses.single.name, 'Google Chrome Helper');
+  });
+
   test('URL save discovers, resolves, and applies sub-rules', () async {
     final scanner = FakeDependencyScanner([
       'api.company.local',

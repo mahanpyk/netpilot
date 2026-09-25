@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct ReconcileResult {
@@ -5,6 +6,15 @@ struct ReconcileResult {
   var removed: Int = 0
   var errors: [String] = []
   var routeChecks: [RouteCheck] = []
+  var connectionResetDestinations: [String] = []
+  var restartedProcesses: [RestartedNetworkProcess] = []
+}
+
+struct RestartedNetworkProcess {
+  let pid: Int32
+  let name: String
+
+  var dictionary: [String: Any] { ["pid": Int(pid), "name": name] }
 }
 
 struct RouteCheck {
@@ -41,15 +51,15 @@ struct ProcessCommandRunner: CommandRunning {
     process.executableURL = URL(fileURLWithPath: launchPath)
     process.arguments = arguments
     let pipe = Pipe()
-    let err = Pipe()
     process.standardOutput = pipe
-    process.standardError = err
+    process.standardError = pipe
     try process.run()
-    process.waitUntilExit()
+    // Drain stdout while the process is running. `lsof` can emit enough socket
+    // rows to fill a pipe; waiting first would then deadlock the helper.
     let outData = pipe.fileHandleForReading.readDataToEndOfFile()
-    let errData = err.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
     if process.terminationStatus != 0 {
-      let message = String(data: errData, encoding: .utf8) ?? "command failed"
+      let message = String(data: outData, encoding: .utf8) ?? "command failed"
       throw NSError(
         domain: "NetPilotHelper",
         code: Int(process.terminationStatus),
@@ -63,14 +73,17 @@ struct ProcessCommandRunner: CommandRunning {
 final class RouteManager {
   private let runner: CommandRunning
   private let storeURL: URL
+  private let signalProcess: (pid_t, Int32) -> Int32
   private var managed: [RouteSpec]
 
   init(
     runner: CommandRunning = ProcessCommandRunner(),
-    storeURL: URL = RouteManager.defaultStoreURL()
+    storeURL: URL = RouteManager.defaultStoreURL(),
+    signalProcess: @escaping (pid_t, Int32) -> Int32 = { Darwin.kill($0, $1) }
   ) {
     self.runner = runner
     self.storeURL = storeURL
+    self.signalProcess = signalProcess
     self.managed = RouteManager.load(from: storeURL)
   }
 
@@ -85,6 +98,8 @@ final class RouteManager {
 
   func reconcile(desired: [RouteSpec]) -> ReconcileResult {
     var result = ReconcileResult()
+    var removedDestinations = Set<String>()
+    var addedDestinations = Set<String>()
     let desiredSet = Set(desired.map(RouteKey.init))
     let currentSet = Set(managed.map(RouteKey.init))
 
@@ -96,12 +111,14 @@ final class RouteManager {
         try deleteRoute(spec)
         managed.removeAll { $0 == spec }
         result.removed += 1
+        removedDestinations.insert(spec.destination)
       } catch {
         if isMissingRouteError(error) {
           // The kernel table is volatile. A route that disappeared after a
           // reboot is already removed; discard only its stale inventory row.
           managed.removeAll { $0 == spec }
           result.removed += 1
+          removedDestinations.insert(spec.destination)
         } else {
           result.errors.append("delete \(spec.destination): \(error.localizedDescription)")
         }
@@ -113,6 +130,7 @@ final class RouteManager {
         try addRoute(spec)
         managed.append(spec)
         result.added += 1
+        addedDestinations.insert(spec.destination)
       } catch {
         result.errors.append("add \(spec.destination): \(error.localizedDescription)")
       }
@@ -127,6 +145,7 @@ final class RouteManager {
         do {
           try addRoute(spec)
           result.added += 1
+          addedDestinations.insert(spec.destination)
           check = inspectRoute(spec)
         } catch {
           let repairError = "repair \(spec.destination): \(error.localizedDescription)"
@@ -147,6 +166,19 @@ final class RouteManager {
         result.errors.append(message)
       }
       result.routeChecks.append(check)
+    }
+
+    let verifiedDestinations = Set(
+      result.routeChecks.filter(\.verified).map(\.destination)
+    )
+    let destinationsToReset = removedDestinations.union(
+      addedDestinations.intersection(verifiedDestinations)
+    )
+    if !destinationsToReset.isEmpty {
+      result.connectionResetDestinations = destinationsToReset.sorted()
+      result.restartedProcesses = restartBrowserNetworkProcesses(
+        connectingTo: destinationsToReset
+      )
     }
 
     persist()
@@ -198,6 +230,81 @@ final class RouteManager {
   private func isMissingRouteError(_ error: Error) -> Bool {
     let message = error.localizedDescription.lowercased()
     return message.contains("not in table") || message.contains("no such process")
+  }
+
+  private func restartBrowserNetworkProcesses(
+    connectingTo destinations: Set<String>
+  ) -> [RestartedNetworkProcess] {
+    let cidrs = destinations.compactMap(IPv4CIDR.init)
+    guard !cidrs.isEmpty else { return [] }
+
+    let listing: String
+    do {
+      listing = try runner.run(
+        "/usr/sbin/lsof",
+        arguments: ["-nP", "-a", "-iTCP", "-iUDP", "-F0pcn"]
+      )
+    } catch {
+      return []
+    }
+
+    var currentPID: Int32?
+    var processNames: [Int32: String] = [:]
+    var candidates = Set<Int32>()
+    for rawField in listing.split(separator: "\0", omittingEmptySubsequences: true) {
+      let field = rawField.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard let type = field.first else { continue }
+      let value = String(field.dropFirst())
+      switch type {
+      case "p":
+        currentPID = Int32(value)
+      case "c":
+        if let currentPID { processNames[currentPID] = value }
+      case "n":
+        guard let currentPID,
+              let arrow = value.range(of: "->"),
+              let remoteIP = Self.remoteIPv4(
+                from: String(value[arrow.upperBound...])
+              ),
+              cidrs.contains(where: { $0.contains(remoteIP) })
+        else { continue }
+        candidates.insert(currentPID)
+      default:
+        continue
+      }
+    }
+
+    var restarted: [RestartedNetworkProcess] = []
+    for pid in candidates.sorted() where pid > 1 {
+      guard let command = try? runner.run(
+        "/bin/ps", arguments: ["-p", String(pid), "-o", "command="]
+      ) else { continue }
+      let isChromiumNetworkService = command.contains(
+        "--utility-sub-type=network.mojom.NetworkService"
+      )
+      let isWebKitNetworkService = command.contains(
+        "/com.apple.WebKit.Networking"
+      )
+      guard isChromiumNetworkService || isWebKitNetworkService else { continue }
+      if signalProcess(pid_t(pid), SIGTERM) == 0 {
+        restarted.append(
+          RestartedNetworkProcess(
+            pid: pid,
+            name: processNames[pid] ??
+              (isWebKitNetworkService ? "WebKit Networking" : "Chromium Network Service")
+          )
+        )
+      }
+    }
+    return restarted
+  }
+
+  private static func remoteIPv4(from endpoint: String) -> String? {
+    guard !endpoint.hasPrefix("["),
+          let colon = endpoint.lastIndex(of: ":")
+    else { return nil }
+    let host = String(endpoint[..<colon])
+    return RouteSpec.isValidIPv4(host) ? host : nil
   }
 
   private func addRoute(_ spec: RouteSpec) throws {
@@ -253,5 +360,33 @@ private struct RouteKey: Hashable {
     gateway = spec.gateway
     interfaceName = spec.interfaceName
     tag = spec.tag
+  }
+}
+
+private struct IPv4CIDR {
+  let network: UInt32
+  let mask: UInt32
+
+  init?(_ value: String) {
+    let parts = value.split(separator: "/", omittingEmptySubsequences: false)
+    guard parts.count == 2,
+          let address = Self.address(String(parts[0])),
+          let prefix = UInt32(parts[1]), prefix <= 32
+    else { return nil }
+    mask = prefix == 0 ? 0 : UInt32.max << (32 - prefix)
+    network = address & mask
+  }
+
+  func contains(_ value: String) -> Bool {
+    guard let address = Self.address(value) else { return false }
+    return address & mask == network
+  }
+
+  private static func address(_ value: String) -> UInt32? {
+    let octets = value.split(separator: ".").compactMap { UInt32(String($0)) }
+    guard octets.count == 4, octets.allSatisfy({ $0 <= 255 }) else {
+      return nil
+    }
+    return octets.reduce(0) { ($0 << 8) | $1 }
   }
 }
