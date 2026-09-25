@@ -75,7 +75,10 @@ Windows in parallel, then creates a **GitHub prerelease** with the Rules-only
 macOS DMG, Windows Setup/MSI/portable ZIP, the matching Windows driver test
 certificate, and SHA-256 checksums. Do not create the release manually. If
 either platform build fails, no release is published. Rerunning a successful
-tag workflow replaces that release's assets.
+tag workflow replaces that release's assets and updates its notes. Release
+notes list the commits since the preceding reachable version tag, grouped by
+change type, with links to each commit and the full comparison. Keep commit
+subjects descriptive so each release has a useful changelog.
 
 Before the first tag, add these two repository secrets in GitHub → Settings →
 Secrets and variables → Actions:

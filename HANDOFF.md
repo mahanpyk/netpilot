@@ -11,8 +11,9 @@ explicit Windows parity request superseded that scope note for this branch.
 ## Current state and next gate (2026-09-26)
 
 - Tagged prerelease [`v1.0.1-test.3`](https://github.com/mahanpyk/netpilot/releases/tag/v1.0.1-test.3)
-  published macOS and Windows test assets from `75a5665`. `develop` and
-  `main` both point to this commit. The repository's former
+  published macOS and Windows test assets from `75a5665`. Later documentation
+  and release-workflow commits can advance `develop`/`main` without changing
+  the tagged assets. The repository's former
   `mahanpyk/netpilot_desktop` URL redirects to `mahanpyk/netpilot`.
   The previous Rules-only DMG was exercised on a company Mac; this release
   contains the route verification and browser reconnect work prompted by
@@ -118,8 +119,11 @@ explicit Windows parity request superseded that scope note for this branch.
   P12 containing only the verified `9F0BA42C…` identity; an isolated keychain
   import and test signature passed before upload. The temporary local P12 and
   password were deleted. The workflow successfully published
-  `v1.0.1-test.2`. The Windows driver remains ephemeral test-signed, with its
-  matching public certificate included in each prerelease.
+  `v1.0.1-test.3`. Its publish job checks out full tag history and runs
+  `.github/scripts/generate_release_notes.py` to group commits since the
+  preceding reachable version tag into release notes; a rerun also updates
+  the existing prerelease body. The Windows driver remains ephemeral
+  test-signed, with its matching public certificate included in each prerelease.
 
 ## Product goal
 
@@ -191,6 +195,9 @@ flowchart LR
 
 ```text
 netpilot_desktop/
+├── .github/
+│   ├── scripts/generate_release_notes.py
+│   └── workflows/release.yml
 ├── AGENTS.md
 ├── HANDOFF.md
 ├── README.md
@@ -660,6 +667,10 @@ CI build must not be reported as successful split-tunneling integration.
 | IPv6 | Not started |
 
 ## Changelog
+
+- **2026-09-26 — Per-tag release changelogs.** Test prereleases now list
+  grouped commit changes and a comparison link for their own tag range;
+  workflow reruns refresh the notes as well as the assets.
 
 - **2026-09-26 — Test release v1.0.1-test.3.** Both platform build jobs and
   prerelease publication passed; live Windows route and WFP acceptance remains

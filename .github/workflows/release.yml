@@ -113,6 +113,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out full tag history for changelog
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download macOS build
         uses: actions/download-artifact@v4
         with:
@@ -158,22 +163,20 @@ jobs:
         run: |
           shopt -s nullglob
           assets=(release/macos/*.dmg release/windows/* release/SHA256SUMS.txt)
-          cat > "$RUNNER_TEMP/netpilot-release-notes.md" <<'EOF'
-          Internal test build for macOS and Windows.
-
-          - **macOS:** Rules, dependency discovery, Sub-rules and Networks. App Routing is unavailable. The DMG is Apple Development signed, not Developer ID notarized, so Gatekeeper may reject it on another Mac. The privileged route helper still requires installation and approval on the test Mac.
-          - **Windows:** WFP driver is signed with the ephemeral test certificate included in this release. Install only on a disposable test machine in Test Mode after trusting that certificate. Live routing and installer acceptance remain pending.
-          - Verify downloaded files against `SHA256SUMS.txt`.
-          EOF
+          notes_file="$RUNNER_TEMP/netpilot-release-notes.md"
+          python3 .github/scripts/generate_release_notes.py \
+            --tag "$RELEASE_TAG" --repository "$GH_REPO" > "$notes_file"
+          test -s "$notes_file"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             if [[ "$(gh release view "$RELEASE_TAG" --json isPrerelease --jq .isPrerelease)" != true ]]; then
               echo "Refusing to replace assets on a non-prerelease" >&2
               exit 1
             fi
             gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+            gh release edit "$RELEASE_TAG" --notes-file "$notes_file"
           else
             gh release create "$RELEASE_TAG" "${assets[@]}" \
               --verify-tag --prerelease \
               --title "NetPilot $RELEASE_TAG (test build)" \
-              --notes-file "$RUNNER_TEMP/netpilot-release-notes.md"
+              --notes-file "$notes_file"
           fi
