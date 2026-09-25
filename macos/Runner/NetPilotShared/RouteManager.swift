@@ -4,6 +4,30 @@ struct ReconcileResult {
   var added: Int = 0
   var removed: Int = 0
   var errors: [String] = []
+  var routeChecks: [RouteCheck] = []
+}
+
+struct RouteCheck {
+  let destination: String
+  let expectedInterface: String
+  let expectedGateway: String?
+  let actualInterface: String?
+  let actualGateway: String?
+  let verified: Bool
+  let message: String?
+
+  var dictionary: [String: Any] {
+    var value: [String: Any] = [
+      "destination": destination,
+      "expectedInterface": expectedInterface,
+      "verified": verified,
+    ]
+    if let expectedGateway { value["expectedGateway"] = expectedGateway }
+    if let actualInterface { value["actualInterface"] = actualInterface }
+    if let actualGateway { value["actualGateway"] = actualGateway }
+    if let message { value["message"] = message }
+    return value
+  }
 }
 
 protocol CommandRunning {
@@ -73,7 +97,14 @@ final class RouteManager {
         managed.removeAll { $0 == spec }
         result.removed += 1
       } catch {
-        result.errors.append("delete \(spec.destination): \(error.localizedDescription)")
+        if isMissingRouteError(error) {
+          // The kernel table is volatile. A route that disappeared after a
+          // reboot is already removed; discard only its stale inventory row.
+          managed.removeAll { $0 == spec }
+          result.removed += 1
+        } else {
+          result.errors.append("delete \(spec.destination): \(error.localizedDescription)")
+        }
       }
     }
 
@@ -87,8 +118,86 @@ final class RouteManager {
       }
     }
 
+    // The JSON inventory survives reboot while the kernel routing table does
+    // not. Never trust the inventory alone: verify every desired route and
+    // re-add entries that were only present in the persisted inventory.
+    for spec in desired {
+      var check = inspectRoute(spec)
+      if !check.verified && currentSet.contains(RouteKey(spec)) && !toAdd.contains(spec) {
+        do {
+          try addRoute(spec)
+          result.added += 1
+          check = inspectRoute(spec)
+        } catch {
+          let repairError = "repair \(spec.destination): \(error.localizedDescription)"
+          result.errors.append(repairError)
+          check = RouteCheck(
+            destination: spec.destination,
+            expectedInterface: spec.interfaceName,
+            expectedGateway: spec.gateway,
+            actualInterface: check.actualInterface,
+            actualGateway: check.actualGateway,
+            verified: false,
+            message: repairError
+          )
+        }
+      }
+      if !check.verified, let message = check.message,
+         !result.errors.contains(message) {
+        result.errors.append(message)
+      }
+      result.routeChecks.append(check)
+    }
+
     persist()
     return result
+  }
+
+  private func inspectRoute(_ spec: RouteSpec) -> RouteCheck {
+    let target = String(spec.destination.split(separator: "/", maxSplits: 1)[0])
+    do {
+      let output = try runner.run("/sbin/route", arguments: ["-n", "get", target])
+      let fields = output.split(separator: "\n").reduce(into: [String: String]()) { values, line in
+        let parts = line.split(separator: ":", maxSplits: 1).map {
+          $0.trimmingCharacters(in: .whitespaces)
+        }
+        if parts.count == 2 { values[parts[0]] = parts[1] }
+      }
+      let actualInterface = fields["interface"]
+      let actualGateway = fields["gateway"]
+      let interfaceMatches = actualInterface == spec.interfaceName
+      let gatewayMatches = spec.gateway.map { $0 == actualGateway } ?? true
+      let verified = interfaceMatches && gatewayMatches
+      let message = verified ? nil :
+        "route \(spec.destination) expected \(spec.interfaceName)" +
+        (spec.gateway.map { " via \($0)" } ?? "") +
+        ", actual \(actualInterface ?? "unavailable")" +
+        (actualGateway.map { " via \($0)" } ?? "")
+      return RouteCheck(
+        destination: spec.destination,
+        expectedInterface: spec.interfaceName,
+        expectedGateway: spec.gateway,
+        actualInterface: actualInterface,
+        actualGateway: actualGateway,
+        verified: verified,
+        message: message
+      )
+    } catch {
+      return RouteCheck(
+        destination: spec.destination,
+        expectedInterface: spec.interfaceName,
+        expectedGateway: spec.gateway,
+        actualInterface: nil,
+        actualGateway: nil,
+        verified: false,
+        message: "route check \(spec.destination): \(error.localizedDescription)"
+      )
+    }
+  }
+
+  private func isMissingRouteError(_ error: Error) -> Bool {
+    let message = error.localizedDescription.lowercased()
+    return message.contains("not in table") || message.contains("no such process")
   }
 
   private func addRoute(_ spec: RouteSpec) throws {

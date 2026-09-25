@@ -8,9 +8,16 @@ here. Consolidate routine fixes into milestones; use Git history for details.
 The original `AGENTS.md` says Windows is deferred, but the user's later
 explicit Windows parity request superseded that scope note for this branch.
 
-## Current state and next gate (2026-09-20)
+## Current state and next gate (2026-09-25)
 
-- Work is on `codex/windows-parity`. Windows GitHub Actions run
+- Tagged prerelease `v1.0.1-test.2` completed and published macOS/Windows
+  assets from commit `90ef525`. The original repository URL redirects to the
+  current `mahanpyk/netpilot` repository. Its Rules-only DMG was exercised on
+  a company Mac; that test exposed unreliable destination-route reporting,
+  which is addressed by the unreleased route-verification work below.
+
+- Current local work is on `main`; `v1.0.1-test.2` is the latest published
+  test release. Windows GitHub Actions run
   [#18](https://github.com/mahanpyk/netpilot_desktop/actions/runs/35528714065)
   succeeded at commit `58294f8`: Flutter analyze/tests, Release app and native
   service build, CTest, WDK driver build, Inf2Cat, test signing, WiX MSI/Burn,
@@ -95,11 +102,9 @@ explicit Windows parity request superseded that scope note for this branch.
   it fails closed. Both repository secrets were added on 2026-09-21 using a
   P12 containing only the verified `9F0BA42C…` identity; an isolated keychain
   import and test signature passed before upload. The temporary local P12 and
-  password were deleted. No live tag workflow has run yet, and the release
-  workflow commit remains unpushed on `codex/windows-parity`; push it before
-  tagging. The Windows driver
-  remains ephemeral test-signed, with its matching
-  public certificate included in each prerelease.
+  password were deleted. The workflow successfully published
+  `v1.0.1-test.2`. The Windows driver remains ephemeral test-signed, with its
+  matching public certificate included in each prerelease.
 
 ## Product goal
 
@@ -338,7 +343,7 @@ Runtime flow/byte/error metrics are returned separately by the provider.
 | `resolveHost` | `{ host, interfaceId? }` | `{ ips: List<String> }` |
 | `getHelperStatus` | — | `{ installed, enabled, status, message? }` |
 | `installHelper` | — | status map (+ `ok` when possible) |
-| `reconcileRoutes` | `{ desired: List<RouteSpec> }` | `{ ok, added, removed, errors }` |
+| `reconcileRoutes` | `{ desired: List<RouteSpec> }` | `{ ok, added, removed, errors, routeChecks }` |
 | `windowAction` | `{ action: close, minimize, or zoom }` | — |
 
 ### EventChannel: `com.netpilot.netpilotDesktop/networkEvents`
@@ -371,6 +376,13 @@ provider flow logs are forwarded once into the Runner/Flutter terminal.
 - Plist embedded at: `Contents/Library/LaunchDaemons/`
 
 **Security:** Destination must be IPv4 CIDR; gateway optional IPv4; interface BSD-like name; tag must start with `netpilot:`. Fixed `/sbin/route` argv only. Managed inventory persisted under `/Library/Application Support/NetPilot/managed_routes.json`.
+
+`routeChecks` contains the destination, expected interface/gateway, actual
+interface/gateway returned by `/sbin/route -n get`, verification state, and an
+optional message. The helper verifies every desired route after reconciliation.
+If the persisted inventory claims a route that disappeared from the kernel
+(notably after reboot), it re-adds and re-checks it instead of treating the
+JSON inventory as proof that routing is active.
 
 ### Windows service protocol
 
@@ -447,7 +459,10 @@ reapplies rules after a successful ping.
   independent toggle, resolved IPs, and status for every sub-rule
 - Helper banner with Install when not enabled
 - Route reconciliation writes desired routes, result counts, errors, and thrown
-  exceptions to the `flutter run` terminal with the `[NetPilot]` prefix.
+  exceptions to the `flutter run` terminal with the `[NetPilot]` prefix. Rules
+  are marked Applied only after native route verification, and the Rules
+  Diagnostics panel shows expected versus actual interface/gateway so packaged
+  builds can be diagnosed without a Flutter terminal.
 - Dependency discovery writes scanned URLs, discovered hosts, failures, and
   route conflicts to the terminal with the same prefix.
 - Apps shows extension/proxy state, master switch, signed `.app` picker,
@@ -545,6 +560,11 @@ CI build must not be reported as successful split-tunneling integration.
 - Hostname → IP: CDN/shared IPs may mis-route unrelated hosts.
 - Dependency discovery is static: computed runtime URLs, browser-only requests,
   authenticated content, and URLs hidden by obfuscated JavaScript may be missed.
+- Destination routes affect new traffic. Browsers can reuse established
+  HTTP/2 or QUIC/HTTP/3 connections that were opened before a rule changed;
+  fully quit and reopen the browser for an acceptance check. Browser Secure DNS
+  can also resolve a different CDN address than system DNS. IPv6 browser
+  traffic remains outside the IPv4-only MVP and will not match these routes.
 - macOS `resolveHost` uses system DNS. The Windows bridge requests DNS on the
   selected interface; live validation with split adapters is still pending.
 - Helper install needs code signing + user Login Items approval.
@@ -604,6 +624,13 @@ CI build must not be reported as successful split-tunneling integration.
 | IPv6 | Not started |
 
 ## Changelog
+
+- **2026-09-25 — Kernel route verification and self-repair.** macOS route
+  reconciliation now checks every desired CIDR with `/sbin/route -n get`,
+  reports actual interface/gateway through XPC and in the Rules Diagnostics
+  panel, and marks only verified rules Applied. Persisted entries missing after
+  reboot are re-added and checked. Flutter tests cover surfaced verification
+  failures; XCTest covers stale-inventory repair and fixed route argv.
 
 - **2026-09-21 — First tag CI packaging fix.** The `v1.0.1-test.1` release
   run built Windows and passed Flutter checks, but macOS packaging stopped at

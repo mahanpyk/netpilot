@@ -138,6 +138,84 @@ void main() {
     await controller.deleteRule(saved.id);
     expect(platform.managed, isEmpty);
   });
+
+  test('kernel route verification failure is shown on the rule', () async {
+    final controller = NetPilotController(
+      platform: FailingVerificationPlatform(),
+      rulesRepository: MemoryRulesRepository(),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.start();
+    await controller.upsertRule(
+      rawDestination: '203.0.113.44',
+      interfaceId: 'en7',
+    );
+
+    expect(controller.rules.single.status, RuleStatus.error);
+    expect(controller.rules.single.lastError, contains('actual utun6'));
+    expect(controller.routeDiagnostics.join('\n'), contains('203.0.113.44/32'));
+    expect(controller.routeDiagnostics.join('\n'), contains('✗'));
+  });
+
+  test('a failed de-duplicated route marks every owning rule', () async {
+    final controller = NetPilotController(
+      platform: FailingVerificationPlatform(),
+      rulesRepository: MemoryRulesRepository(),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.start();
+    await controller.upsertRule(
+      rawDestination: '203.0.113.44',
+      interfaceId: 'en7',
+      label: 'First',
+    );
+    await controller.upsertRule(
+      rawDestination: '203.0.113.44',
+      interfaceId: 'en7',
+      label: 'Second',
+    );
+
+    expect(controller.rules, hasLength(2));
+    expect(
+      controller.rules.every((rule) => rule.status == RuleStatus.error),
+      isTrue,
+    );
+  });
+}
+
+class FailingVerificationPlatform extends FakeNetworkPlatform {
+  @override
+  Future<ApplyRoutesResult> reconcileRoutes(List<DesiredRoute> desired) async {
+    if (desired.isEmpty) {
+      return const ApplyRoutesResult(
+        ok: true,
+        added: 0,
+        removed: 0,
+        errors: [],
+      );
+    }
+    final route = desired.single;
+    return ApplyRoutesResult(
+      ok: false,
+      added: 1,
+      removed: 0,
+      errors: const ['route verification failed'],
+      routeChecks: [
+        RouteCheckResult(
+          destination: route.destinationCidr,
+          expectedInterface: route.interfaceName,
+          expectedGateway: route.gateway,
+          actualInterface: 'utun6',
+          actualGateway: '192.0.2.1',
+          verified: false,
+          message:
+              'route ${route.destinationCidr} expected ${route.interfaceName}, actual utun6',
+        ),
+      ],
+    );
+  }
 }
 
 class FakeDependencyScanner implements DependencyScanner {

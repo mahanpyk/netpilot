@@ -41,6 +41,7 @@ class NetPilotController extends ChangeNotifier {
   bool _loading = true;
   bool _busy = false;
   String? _bannerError;
+  List<String> _routeDiagnostics = const [];
   StreamSubscription<void>? _networkSub;
 
   List<NetworkInterfaceInfo> get interfaces => List.unmodifiable(_interfaces);
@@ -49,6 +50,7 @@ class NetPilotController extends ChangeNotifier {
   bool get loading => _loading;
   bool get busy => _busy;
   String? get bannerError => _bannerError;
+  List<String> get routeDiagnostics => List.unmodifiable(_routeDiagnostics);
 
   List<NetworkInterfaceInfo> get activeInterfaces =>
       _interfaces.where((i) => i.isActive).toList();
@@ -371,11 +373,53 @@ class NetPilotController extends ChangeNotifier {
       }
 
       final result = await _platform.reconcileRoutes(desired);
+      final checksByRoute = {
+        for (final check in result.routeChecks)
+          '${check.destination}|${check.expectedInterface}': check,
+      };
+      String? verificationError({
+        required DestinationKind kind,
+        required String destination,
+        required List<String> resolvedIps,
+        required String interfaceId,
+      }) {
+        if (result.routeChecks.isEmpty) return null;
+        final cidrs = switch (kind) {
+          DestinationKind.cidr => [destination],
+          DestinationKind.ipv4 => ['$destination/32'],
+          DestinationKind.hostname ||
+          DestinationKind.url => [for (final ip in resolvedIps) '$ip/32'],
+        };
+        for (final cidr in cidrs) {
+          final check = checksByRoute['$cidr|$interfaceId'];
+          if (check == null) {
+            return 'Route $cidr was not verified by the helper.';
+          }
+          if (!check.verified) {
+            return check.message ?? 'Route $cidr is not using $interfaceId.';
+          }
+        }
+        return null;
+      }
+
+      _routeDiagnostics = [
+        'Desired routes: ${desired.length} · added: ${result.added} · removed: ${result.removed}',
+        for (final check in result.routeChecks)
+          '${check.verified ? '✓' : '✗'} ${check.destination} → '
+              '${check.actualInterface ?? 'unavailable'}'
+              '${check.actualGateway == null ? '' : ' via ${check.actualGateway}'} '
+              '(expected ${check.expectedInterface}'
+              '${check.expectedGateway == null ? '' : ' via ${check.expectedGateway}'})'
+              '${check.message == null ? '' : '\n  ${check.message}'}',
+        for (final error in result.errors) 'Error: $error',
+        if (desired.isNotEmpty) 'Browser check: fully quit and reopen the browser after a route change; existing HTTP/2 or HTTP/3 connections can keep the previous path.',
+      ];
       debugPrint(
         '[NetPilot] Route reconcile: '
         'desired=${desired.map((route) => route.toMap()).toList()} '
         'added=${result.added} removed=${result.removed} '
-        'ok=${result.ok} errors=${result.errors}',
+        'ok=${result.ok} errors=${result.errors} '
+        'checks=${result.routeChecks.map((check) => {'destination': check.destination, 'expectedInterface': check.expectedInterface, 'expectedGateway': check.expectedGateway, 'actualInterface': check.actualInterface, 'actualGateway': check.actualGateway, 'verified': check.verified}).toList()}',
       );
       _rules = _rules.map((rule) {
         if (!rule.enabled) {
@@ -412,7 +456,19 @@ class NetPilotController extends ChangeNotifier {
               lastError: conflicts.join(' '),
             );
           }
-          if (!result.ok) {
+          final routeError = verificationError(
+            kind: subRule.kind,
+            destination: subRule.destination,
+            resolvedIps: subRule.resolvedIps,
+            interfaceId: rule.interfaceId,
+          );
+          if (routeError != null) {
+            return subRule.copyWith(
+              status: RuleStatus.error,
+              lastError: routeError,
+            );
+          }
+          if (!result.ok && result.routeChecks.isEmpty) {
             return subRule.copyWith(
               status: RuleStatus.error,
               lastError: result.errors.isEmpty
@@ -442,7 +498,20 @@ class NetPilotController extends ChangeNotifier {
             subRules: subRules,
           );
         }
-        if (!result.ok) {
+        final routeError = verificationError(
+          kind: rule.kind,
+          destination: rule.normalizedDestination,
+          resolvedIps: rule.resolvedIps,
+          interfaceId: rule.interfaceId,
+        );
+        if (routeError != null) {
+          return rule.copyWith(
+            status: RuleStatus.error,
+            lastError: routeError,
+            subRules: subRules,
+          );
+        }
+        if (!result.ok && result.routeChecks.isEmpty) {
           return rule.copyWith(
             status: RuleStatus.error,
             lastError: result.errors.isEmpty
@@ -470,6 +539,7 @@ class NetPilotController extends ChangeNotifier {
       debugPrint('[NetPilot] Route reconcile threw: $error');
       debugPrintStack(stackTrace: stackTrace);
       _bannerError = error.toString();
+      _routeDiagnostics = ['Route reconcile threw: $error'];
       _rules = _rules
           .map(
             (r) => r.enabled

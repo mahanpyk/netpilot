@@ -119,6 +119,7 @@ class _HomePageState extends State<HomePage> {
                 _Diagnostics(
                   message: c.bannerError,
                   helperEnabled: c.helperStatus.enabled,
+                  lines: c.routeDiagnostics,
                 ),
               ],
             ],
@@ -643,16 +644,23 @@ class _WindowButtonState extends State<_WindowButton> {
 }
 
 class _Diagnostics extends StatelessWidget {
-  const _Diagnostics({required this.message, required this.helperEnabled});
+  const _Diagnostics({
+    required this.message,
+    required this.helperEnabled,
+    required this.lines,
+  });
   final String? message;
   final bool helperEnabled;
+  final List<String> lines;
 
   @override
   Widget build(BuildContext context) {
     final summary =
         message ??
         (helperEnabled
-            ? 'Route logs are available in the Flutter terminal.'
+            ? (lines.isEmpty
+                  ? 'Route checks will appear after applying a rule.'
+                  : '${lines.length} route diagnostic entries')
             : 'The route helper is not enabled.');
     return Card(
       child: ExpansionTile(
@@ -662,7 +670,12 @@ class _Diagnostics extends StatelessWidget {
         childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
         children: [
           SelectableText(
-            message ?? 'Run with flutter run -d macos; route failures appear with the [NetPilot] prefix.',
+            [
+              ?message,
+              ...lines,
+              if (message == null && lines.isEmpty)
+                'Add or refresh a rule to verify its actual macOS route.',
+            ].join('\n'),
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],

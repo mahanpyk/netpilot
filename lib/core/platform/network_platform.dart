@@ -34,12 +34,14 @@ class ApplyRoutesResult {
     required this.added,
     required this.removed,
     required this.errors,
+    this.routeChecks = const [],
   });
 
   final bool ok;
   final int added;
   final int removed;
   final List<String> errors;
+  final List<RouteCheckResult> routeChecks;
 
   factory ApplyRoutesResult.fromMap(Map<Object?, Object?> map) {
     return ApplyRoutesResult(
@@ -49,8 +51,46 @@ class ApplyRoutesResult {
       errors: (map['errors'] as List<dynamic>? ?? const [])
           .map((e) => e.toString())
           .toList(),
+      routeChecks: (map['routeChecks'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map(
+            (value) =>
+                RouteCheckResult.fromMap(Map<Object?, Object?>.from(value)),
+          )
+          .toList(),
     );
   }
+}
+
+class RouteCheckResult {
+  const RouteCheckResult({
+    required this.destination,
+    required this.expectedInterface,
+    required this.verified,
+    this.expectedGateway,
+    this.actualInterface,
+    this.actualGateway,
+    this.message,
+  });
+
+  final String destination;
+  final String expectedInterface;
+  final String? expectedGateway;
+  final String? actualInterface;
+  final String? actualGateway;
+  final bool verified;
+  final String? message;
+
+  factory RouteCheckResult.fromMap(Map<Object?, Object?> map) =>
+      RouteCheckResult(
+        destination: map['destination']?.toString() ?? '',
+        expectedInterface: map['expectedInterface']?.toString() ?? '',
+        expectedGateway: map['expectedGateway']?.toString(),
+        actualInterface: map['actualInterface']?.toString(),
+        actualGateway: map['actualGateway']?.toString(),
+        verified: map['verified'] as bool? ?? false,
+        message: map['message']?.toString(),
+      );
 }
 
 class ResolveHostResult {
@@ -82,10 +122,12 @@ class MethodChannelNetworkPlatform implements NetworkPlatform {
   MethodChannelNetworkPlatform({
     MethodChannel? methodChannel,
     EventChannel? eventChannel,
-  })  : _method = methodChannel ??
-            const MethodChannel('com.netpilot.netpilotDesktop/network'),
-        _events = eventChannel ??
-            const EventChannel('com.netpilot.netpilotDesktop/networkEvents');
+  }) : _method =
+           methodChannel ??
+           const MethodChannel('com.netpilot.netpilotDesktop/network'),
+       _events =
+           eventChannel ??
+           const EventChannel('com.netpilot.netpilotDesktop/networkEvents');
 
   final MethodChannel _method;
   final EventChannel _events;
@@ -115,8 +157,9 @@ class MethodChannelNetworkPlatform implements NetworkPlatform {
 
   @override
   Future<HelperStatus> getHelperStatus() async {
-    final raw =
-        await _method.invokeMethod<Map<Object?, Object?>>('getHelperStatus');
+    final raw = await _method.invokeMethod<Map<Object?, Object?>>(
+      'getHelperStatus',
+    );
     if (raw == null) {
       return const HelperStatus(
         installed: false,
@@ -129,8 +172,9 @@ class MethodChannelNetworkPlatform implements NetworkPlatform {
 
   @override
   Future<HelperStatus> installHelper() async {
-    final raw =
-        await _method.invokeMethod<Map<Object?, Object?>>('installHelper');
+    final raw = await _method.invokeMethod<Map<Object?, Object?>>(
+      'installHelper',
+    );
     if (raw == null) {
       return const HelperStatus(
         installed: false,
@@ -171,37 +215,39 @@ class FakeNetworkPlatform implements NetworkPlatform {
     List<NetworkInterfaceInfo>? interfaces,
     this.resolveMap = const {},
     HelperStatus? helperStatus,
-  })  : interfaces = interfaces ??
-            [
-              const NetworkInterfaceInfo(
-                id: 'en0',
-                name: 'Wi-Fi',
-                interfaceName: 'en0',
-                kind: NetworkInterfaceKind.wifi,
-                ipv4Addresses: ['192.168.1.10'],
-                gateway: '192.168.1.1',
-                dnsServers: ['8.8.8.8'],
-                isDefaultRoute: true,
-                isActive: true,
-              ),
-              const NetworkInterfaceInfo(
-                id: 'en7',
-                name: 'Ethernet',
-                interfaceName: 'en7',
-                kind: NetworkInterfaceKind.ethernet,
-                ipv4Addresses: ['10.0.0.42'],
-                gateway: '10.0.0.1',
-                dnsServers: ['10.0.0.1'],
-                isDefaultRoute: false,
-                isActive: true,
-              ),
-            ],
-        helperStatus = helperStatus ??
-            const HelperStatus(
-              installed: true,
-              enabled: true,
-              status: 'enabled',
-            );
+  }) : interfaces =
+           interfaces ??
+           [
+             const NetworkInterfaceInfo(
+               id: 'en0',
+               name: 'Wi-Fi',
+               interfaceName: 'en0',
+               kind: NetworkInterfaceKind.wifi,
+               ipv4Addresses: ['192.168.1.10'],
+               gateway: '192.168.1.1',
+               dnsServers: ['8.8.8.8'],
+               isDefaultRoute: true,
+               isActive: true,
+             ),
+             const NetworkInterfaceInfo(
+               id: 'en7',
+               name: 'Ethernet',
+               interfaceName: 'en7',
+               kind: NetworkInterfaceKind.ethernet,
+               ipv4Addresses: ['10.0.0.42'],
+               gateway: '10.0.0.1',
+               dnsServers: ['10.0.0.1'],
+               isDefaultRoute: false,
+               isActive: true,
+             ),
+           ],
+       helperStatus =
+           helperStatus ??
+           const HelperStatus(
+             installed: true,
+             enabled: true,
+             status: 'enabled',
+           );
 
   List<NetworkInterfaceInfo> interfaces;
   Map<String, List<String>> resolveMap;
@@ -250,6 +296,17 @@ class FakeNetworkPlatform implements NetworkPlatform {
       added: added,
       removed: removed,
       errors: const [],
+      routeChecks: [
+        for (final route in desired)
+          RouteCheckResult(
+            destination: route.destinationCidr,
+            expectedInterface: route.interfaceName,
+            expectedGateway: route.gateway,
+            actualInterface: route.interfaceName,
+            actualGateway: route.gateway,
+            verified: true,
+          ),
+      ],
     );
   }
 
