@@ -174,9 +174,7 @@ BrowserReconnect::Reconnect(const std::vector<std::string>& destinations,
           if (command.find(L"--utility-sub-type=network.mojom.NetworkService") !=
                   std::wstring::npos &&
               TerminateProcess(process, 0)) {
-            const auto filename = std::filesystem::path(path).filename().wstring();
-            const std::string name(filename.begin(), filename.end());
-            restarted.push_back({pid, name + " Network Service"});
+            restarted.push_back({pid, "Chromium Network Service"});
           }
         }
       }
