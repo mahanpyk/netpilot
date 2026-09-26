@@ -1,120 +1,102 @@
 # NetPilot Desktop
 
-Split routing for developers on dual networks (Wi‑Fi for internet + LAN for intranet).
+![NetPilot icon](macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_128.png)
 
-**Platforms:** macOS 14+; Windows 10 22H2/11 x64 development implementation
-**Docs for agents:** [`HANDOFF.md`](HANDOFF.md) · [`AGENTS.md`](AGENTS.md)
+**Route selected destinations through a chosen network interface while keeping your usual default connection.** NetPilot is a Flutter desktop app for people connected to two networks at once, such as Wi-Fi for the internet and Ethernet for a company intranet.
 
-## What it does
+[![Tagged test release](https://github.com/mahanpyk/netpilot/actions/workflows/release.yml/badge.svg)](https://github.com/mahanpyk/netpilot/actions/workflows/release.yml) · [Test releases](https://github.com/mahanpyk/netpilot/releases) · [Report an issue](https://github.com/mahanpyk/netpilot/issues)
 
-1. Lists active network interfaces (Wi‑Fi, Ethernet, …).
-2. Lets you add destinations: hostname, URL (hostname only), IPv4, or CIDR.
-3. Applies specific routes so those destinations leave via the chosen LAN interface — without changing macOS service order.
-4. Scans saved URLs for related HTML/JavaScript hosts and adds them as expandable, independently switchable Sub-rules on the same interface.
-5. Pins selected macOS applications or Windows Win32 EXEs and reviewed helpers
-   to a physical interface with block/fallback behavior.
-6. On macOS, forces active Safari and Chromium networking services to reconnect
-   after a destination route changes, so open tabs use the new route without
-   quitting the whole browser.
+> **Project status:** NetPilot is under active development. The downloadable macOS test DMG supports destination rules but does **not** include per-app routing. Windows packages build in CI, but installation and live routing still need acceptance testing on real Windows machines. These are test builds, not production releases.
 
-## Requirements
+## Features
 
-- Flutter **3.47.4 stable** / Dart **3.13.3** (minimum versions in `pubspec.yaml`)
-- Xcode 15+ / macOS 14+ for running the app
-- Apple Development Team (same Team ID on app + helper) for privileged helper install
-- Windows: Visual Studio 2022, Windows SDK/WDK, CMake, WiX v4, and Test Mode for
-  test-signed driver development
+| Feature | What it does |
+| --- | --- |
+| Destination rules | Route a hostname, HTTP(S) URL, IPv4 address, or CIDR range through a selected Wi-Fi or Ethernet interface. A URL rule routes by hostname/IP, not by URL path. |
+| URL dependency discovery | On Save, scan a public page's HTML, inline JavaScript, same-origin JavaScript files, and redirects for additional hosts. Show them as independently switchable sub-rules that inherit the parent interface. |
+| Network inventory | Show active interfaces, IPv4 addresses, gateways, DNS servers, and the default route. |
+| Route diagnostics | Show resolution, route application, conflicts, and helper errors in the app and terminal (`[NetPilot]`). Refresh DNS and reapply existing rules without rescanning the page. |
+| Browser reconnect | After route changes, refresh affected Safari/Chromium networking services on macOS so open tabs can establish new connections over the updated route. Windows has a corresponding implementation awaiting live testing. |
+| Per-app routing (development) | Source code for macOS Transparent Proxy and Windows WFP-based routing of selected apps over a physical interface. This is **not available in the macOS test DMG** and has not passed the required signed/live integration gates. |
 
-## Setup
+NetPilot currently routes **IPv4** traffic. It does not inspect TLS, route by URL path, or provide a VPN. If two sites use the same destination IP, a system-wide destination route cannot send those sites through different interfaces. The dependency scanner uses static analysis; it does not execute JavaScript or scan pages requiring a login.
 
-Upgrade an existing Flutter installation to the latest stable release first
-(see the [official upgrade guide](https://docs.flutter.dev/install/upgrade)):
+## Download and try it
 
-```bash
-flutter channel stable
-flutter upgrade
-flutter --version
-```
+Download the latest assets from [GitHub Releases](https://github.com/mahanpyk/netpilot/releases). Check each release's changelog and `SHA256SUMS.txt` before testing.
 
-Then install the project's locked dependencies:
+### macOS 14+
+
+1. Download `NetPilot-Rules-Test-*.dmg`, install the app, and open it.
+2. In **Settings → Privileged helper**, choose **Install / Repair** and approve the background item if macOS asks. Route changes require this signed helper.
+3. In **Networks**, confirm that the intended interface is active. In **Rules**, choose **Add rule**, enter a destination such as `intranet.example.com` or `10.0.0.0/8`, select the interface, then **Save & apply**.
+4. Inspect the rule's status and the **Diagnostics** panel. Use **Refresh DNS & apply** if a hostname's address changes.
+
+The DMG is signed with an Apple Development certificate, not Developer ID notarized. macOS may require approval in **System Settings → Privacy & Security** on another Mac. App Routing is intentionally unavailable in this package.
+
+### Windows 10 22H2 / Windows 11 (x64)
+
+The Windows installer, MSI, portable ZIP, and matching driver test certificate are published for **controlled testing only**. The WFP driver is test-signed; Test Mode, certificate trust, and a reboot are required. Use a disposable VM or test machine and follow the [Windows build and installation guide](windows/README.md) and [two-adapter integration checklist](windows/IntegrationTests/WFP_GATE.md). A successful CI build does not establish that the driver or routes work on your machine.
+
+## Build from source
+
+### macOS
+
+Requirements: Flutter **3.47.4+** (Dart **3.13.3+**), Xcode 15+, and macOS 14+. Install Flutter using the [official guide](https://docs.flutter.dev/get-started/install), then run:
 
 ```bash
 flutter pub get
-open macos/Runner.xcworkspace   # set Signing Team on Runner + NetPilotHelper
+open macos/Runner.xcworkspace
 flutter run -d macos
 ```
 
-## Tests & analyze
+Configure the same Apple Development Team for the Runner and privileged helper in Xcode before testing route changes. An unsigned local build can show the UI and networks, but it cannot validate privileged routing or activate the per-app System Extension. The extension requires approved Network Extension/System Extension entitlements and a suitable provisioning profile; see the [macOS signed integration gate](macos/IntegrationTests/APP_ROUTING.md).
+
+### Windows
+
+Requirements: Visual Studio 2022 with Desktop C++, Windows SDK and WDK, CMake, Flutter 3.47.4+, and WiX v4. Follow [windows/README.md](windows/README.md) for developer setup, test signing, build commands, and installer creation. The Flutter Runner stays unelevated; only the installed Windows service and WFP driver perform privileged operations.
+
+## Verify changes
+
+Run the Flutter checks on your development platform:
 
 ```bash
+flutter pub get
 flutter analyze
 flutter test
-flutter build macos
 ```
 
-For Windows setup, test signing, build, installer, and the required two-adapter
-acceptance gate, see [`windows/README.md`](windows/README.md) and
-[`windows/IntegrationTests/WFP_GATE.md`](windows/IntegrationTests/WFP_GATE.md).
-The Windows Runner remains unelevated; route/WFP changes are accepted only by
-the installed LocalSystem service over its validated named-pipe API.
+On macOS, `flutter build macos --debug` checks the desktop build. On Windows, follow the [Windows guide](windows/README.md) for native CTest, driver, signing, and installer checks. Real route and per-app egress behavior must also be tested on a machine with two usable network interfaces; CI compilation alone is insufficient.
 
-## Privileged helper
+## How it works
 
-Route changes need a signed helper (`com.netpilot.netpilotDesktop.helper`) embedded at build time (`macos/scripts/embed_helper.sh`) and installed via `SMAppService`. Approve **Login Items / Background Items** if prompted. Without a valid Team ID signature, inventory and UI still work; apply/reconcile may fail until signing is configured.
+NetPilot stores destination and app rules in the current user's application-support directory. The Flutter UI resolves destinations and reconciles desired routes when rules or interfaces change. On macOS, route mutations go through a signed `SMAppService`/XPC helper; on Windows they go through a validated named pipe to a LocalSystem service. The app does not run arbitrary shell commands from rule input. [HANDOFF.md](HANDOFF.md) documents the native contracts, persistence formats, and current integration gates.
 
-After a successful route mutation, the helper finds network-service processes
-with active sockets to the changed IPv4 destinations. It sends `SIGTERM` only
-to Safari's WebKit networking process or a Chromium Network Service; those
-services restart automatically while browser windows and tabs remain open.
-Other applications are never terminated by this reconnect step.
+URL scans run when a URL rule is saved. They have limits on redirects, script downloads, request duration, and total data. A failed scan leaves the parent destination rule in place and reports the warning. Refreshing DNS does not rescan the page. When multiple rules request the same IP on different interfaces, NetPilot reports a conflict instead of silently choosing one.
 
-## Tagged test releases
+The main Flutter code lives in [`lib/`](lib/), with Flutter tests in [`test/`](test/). Platform-specific code and integration instructions live in [`macos/`](macos/) and [`windows/`](windows/). [HANDOFF.md](HANDOFF.md) is the technical map for contributors.
 
-Push one annotated tag such as `v0.1.0-test.1`. GitHub Actions builds macOS and
-Windows in parallel, then creates a **GitHub prerelease** with the Rules-only
-macOS DMG, Windows Setup/MSI/portable ZIP, the matching Windows driver test
-certificate, and SHA-256 checksums. Do not create the release manually. If
-either platform build fails, no release is published. Rerunning a successful
-tag workflow replaces that release's assets and updates its notes. Release
-notes list the commits since the preceding reachable version tag, grouped by
-change type, with links to each commit and the full comparison. Keep commit
-subjects descriptive so each release has a useful changelog.
+## Releases
 
-Before the first tag, add these two repository secrets in GitHub → Settings →
-Secrets and variables → Actions:
+Pushing an annotated version tag triggers the [release workflow](.github/workflows/release.yml). It runs Flutter checks and builds both platform packages, then creates a GitHub prerelease only if both jobs succeed. Release notes are generated from commits since the previous version tag; rerunning the tag workflow updates its assets and notes.
 
-- `MACOS_CERT_P12_BASE64`: base64 of a `.p12` containing one Apple Development
-  signing identity and its private key.
-- `MACOS_CERT_P12_PASSWORD`: that `.p12` file's password.
-
-Keep the `.p12`, its base64 value, and password out of Git. The workflow imports
-them into a temporary CI keychain, signs the app and route helper, and deletes
-the keychain afterward. The macOS package deliberately omits the System
-Extension, so it does not require the Network Extension profile. It is still
-an **internal test build**: Apple Development signing is not Developer ID
-notarization and Gatekeeper can reject it on another Mac. The Windows driver
-is also test-signed and needs Test Mode plus the certificate from the same
-release. Neither package has completed live cross-machine acceptance.
-
-After pushing the workflow and signing secrets, create a tag from the commit
-you want to test:
+Maintainers must set `MACOS_CERT_P12_BASE64` and `MACOS_CERT_P12_PASSWORD` as GitHub Actions repository secrets before tagging. The P12 must contain the Apple Development identity used to sign the macOS app and helper. Keep certificates, private keys, and passwords out of Git. Once the intended changes are on `main`, create and push an annotated tag:
 
 ```bash
-git tag -a v0.1.0-test.1 -m "NetPilot test build"
-git push origin v0.1.0-test.1
+git tag -a v1.0.2-test.1 -m "NetPilot test build"
+git push origin v1.0.2-test.1
 ```
 
-The tag must point to a commit containing `.github/workflows/release.yml`.
-Release names accept `vMAJOR.MINOR.PATCH` with an optional suffix such as
-`-test.1`. The release remains marked as a prerelease until production signing
-and device acceptance are available.
+The current workflow produces **test prereleases**. macOS packages are not Developer ID notarized, and Windows packages use a per-run test driver certificate.
 
-If corporate Pub mirror fails:
+## Contributing and reporting issues
 
-```bash
-PUB_HOSTED_URL=https://pub.dev flutter pub get
-```
+Issues and pull requests are welcome. Before changing native contracts, models, file layout, or capabilities, read [AGENTS.md](AGENTS.md) and [HANDOFF.md](HANDOFF.md); update the handoff in the same change when those contracts change. Keep commits descriptive because release changelogs are generated from their subjects. Include relevant Flutter/native tests and describe what was verified on real hardware.
 
-## Agent / contributor note
+For a routing bug, [open an issue](https://github.com/mahanpyk/netpilot/issues) with the OS version, NetPilot release, destination type, selected interface, expected and actual behavior, and the app's Diagnostics or `[NetPilot]` terminal lines. Remove private hostnames, IPs, and credentials before posting public logs.
 
-Before changing structure or contracts, read `HANDOFF.md`. Keep it updated when you change them.
+If dependency installation fails behind a corporate Pub mirror, retry with `PUB_HOSTED_URL=https://pub.dev flutter pub get`.
+
+## License
+
+No open-source license has been added to this repository yet. The source is visible, but reuse and redistribution terms have not been granted. A license should be selected before presenting NetPilot as a licensed open-source project.
