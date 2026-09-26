@@ -4,7 +4,7 @@
 
 **Route selected destinations through a chosen network interface while keeping your usual default connection.** NetPilot is a Flutter desktop app for people connected to two networks at once, such as Wi-Fi for the internet and Ethernet for a company intranet.
 
-[![Tagged test release](https://github.com/mahanpyk/netpilot/actions/workflows/release.yml/badge.svg)](https://github.com/mahanpyk/netpilot/actions/workflows/release.yml) · [Test releases](https://github.com/mahanpyk/netpilot/releases) · [Report an issue](https://github.com/mahanpyk/netpilot/issues)
+[![Tagged test release](https://github.com/mahanpyk/netpilot/actions/workflows/release.yml/badge.svg)](https://github.com/mahanpyk/netpilot/actions/workflows/release.yml) · [Changelog](CHANGELOG.md) · [Test releases](https://github.com/mahanpyk/netpilot/releases) · [Report an issue](https://github.com/mahanpyk/netpilot/issues)
 
 > **Project status:** NetPilot is under active development. The downloadable macOS test DMG supports destination rules but does **not** include per-app routing. Windows packages build in CI, but installation and live routing still need acceptance testing on real Windows machines. These are test builds, not production releases.
 
@@ -79,6 +79,10 @@ The main Flutter code lives in [`lib/`](lib/), with Flutter tests in [`test/`](t
 ## Releases
 
 Pushing an annotated version tag triggers the [release workflow](.github/workflows/release.yml). It runs Flutter checks and builds both platform packages, then creates a GitHub prerelease only if both jobs succeed. Release notes are generated from commits since the previous version tag; rerunning the tag workflow updates its assets and notes.
+
+The curated [changelog](CHANGELOG.md) records the significant changes and
+release status for each test version. Update its **Unreleased** section when
+making user-visible changes, then move those entries under the next tag.
 
 Maintainers must set `MACOS_CERT_P12_BASE64` and `MACOS_CERT_P12_PASSWORD` as GitHub Actions repository secrets before tagging. The P12 must contain the Apple Development identity used to sign the macOS app and helper. Keep certificates, private keys, and passwords out of Git. Once the intended changes are on `main`, create and push an annotated tag:
 

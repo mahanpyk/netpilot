@@ -124,6 +124,9 @@ explicit Windows parity request superseded that scope note for this branch.
   preceding reachable version tag into release notes; a rerun also updates
   the existing prerelease body. The Windows driver remains ephemeral
   test-signed, with its matching public certificate included in each prerelease.
+  Root `CHANGELOG.md` is the curated per-version summary, including release
+  availability. Keep its Unreleased section current for user-visible changes;
+  GitHub release notes remain generated from commits at tag time.
 
 ## Product goal
 
@@ -200,6 +203,7 @@ netpilot_desktop/
 │   └── workflows/release.yml
 ├── AGENTS.md
 ├── HANDOFF.md
+├── CHANGELOG.md
 ├── README.md
 ├── pubspec.yaml
 ├── lib/
@@ -667,6 +671,9 @@ CI build must not be reported as successful split-tunneling integration.
 | IPv6 | Not started |
 
 ## Changelog
+
+- **2026-09-26 — Curated version history.** Added root `CHANGELOG.md` for
+  each test tag and its actual publication status; linked it from README.
 
 - **2026-09-26 — Per-tag release changelogs.** Test prereleases now list
   grouped commit changes and a comparison link for their own tag range;
