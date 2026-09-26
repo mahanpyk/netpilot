@@ -204,6 +204,7 @@ netpilot_desktop/
 ├── AGENTS.md
 ├── HANDOFF.md
 ├── CHANGELOG.md
+├── LICENSE
 ├── README.md
 ├── pubspec.yaml
 ├── lib/
@@ -671,6 +672,9 @@ CI build must not be reported as successful split-tunneling integration.
 | IPv6 | Not started |
 
 ## Changelog
+
+- **2026-09-26 — MIT license.** Added a root MIT `LICENSE` with copyright
+  holder `mahanpyk` and updated README and the Unreleased changelog section.
 
 - **2026-09-26 — Curated version history.** Added root `CHANGELOG.md` for
   each test tag and its actual publication status; linked it from README.

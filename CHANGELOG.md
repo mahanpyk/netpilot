@@ -9,6 +9,7 @@ identified separately from features available in downloadable packages.
 
 ### Documentation and release process
 
+- Licensed the project under MIT.
 - Added this versioned changelog and expanded the GitHub README with setup,
   testing, contribution, and release instructions.
 - Release notes are generated from commits between version tags; rerunning a

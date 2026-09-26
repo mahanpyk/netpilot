@@ -103,4 +103,5 @@ If dependency installation fails behind a corporate Pub mirror, retry with `PUB_
 
 ## License
 
-No open-source license has been added to this repository yet. The source is visible, but reuse and redistribution terms have not been granted. A license should be selected before presenting NetPilot as a licensed open-source project.
+NetPilot Desktop is licensed under the [MIT License](LICENSE). Third-party
+dependencies retain their own licenses.
