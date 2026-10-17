@@ -33,12 +33,14 @@ class HttpDependencyScanner implements DependencyScanner {
     this.maxRedirects = 5,
     this.maxScripts = 20,
     this.requestTimeout = const Duration(seconds: 10),
+    this.scanTimeout = const Duration(seconds: 30),
     this.maxTotalBytes = 10 * 1024 * 1024,
   });
 
   final int maxRedirects;
   final int maxScripts;
   final Duration requestTimeout;
+  final Duration scanTimeout;
   final int maxTotalBytes;
 
   static final _javascriptRequestPatterns = [
@@ -71,6 +73,18 @@ class HttpDependencyScanner implements DependencyScanner {
     final client = HttpClient()
       ..connectionTimeout = requestTimeout
       ..userAgent = 'NetPilot/1.0 dependency scanner';
+    try {
+      return await _scan(client, uri).timeout(scanTimeout);
+    } on TimeoutException {
+      throw const DependencyScanException('Dependency scan timed out.');
+    } finally {
+      // Future.timeout does not cancel the source future. Closing the client
+      // also aborts any outstanding connect, response, or body read.
+      client.close(force: true);
+    }
+  }
+
+  Future<DependencyScanResult> _scan(HttpClient client, Uri uri) async {
     var consumedBytes = 0;
     final destinations = <String>{};
 
@@ -207,8 +221,6 @@ class HttpDependencyScanner implements DependencyScanner {
       throw DependencyScanException(error.message);
     } catch (error) {
       throw DependencyScanException('Dependency scan failed: $error');
-    } finally {
-      client.close(force: true);
     }
   }
 
@@ -221,20 +233,23 @@ class HttpDependencyScanner implements DependencyScanner {
     final redirectHosts = <String>{};
 
     for (var redirectCount = 0; ; redirectCount++) {
-      final request = await client.getUrl(current).timeout(requestTimeout);
-      request.followRedirects = false;
-      request.headers.set(HttpHeaders.acceptHeader, '*/*');
-      final response = await request.close().timeout(requestTimeout);
+      // One deadline includes DNS/connect, headers, and the complete body.
+      // Per-chunk inactivity timeouts alone allow a trickling response to run
+      // indefinitely, including redirect and error response bodies.
+      final resource = await _readResponse(
+        client,
+        current,
+        onBytes: onBytes,
+      ).timeout(requestTimeout);
+      final response = resource.response;
 
       if (response.isRedirect) {
         if (redirectCount >= maxRedirects) {
-          await response.drain<void>();
           throw DependencyScanException(
             'Dependency scan exceeded $maxRedirects redirects.',
           );
         }
         final location = response.headers.value(HttpHeaders.locationHeader);
-        await response.drain<void>();
         if (location == null || location.trim().isEmpty) {
           throw const DependencyScanException(
             'Redirect response did not include a location.',
@@ -252,24 +267,35 @@ class HttpDependencyScanner implements DependencyScanner {
       }
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        await response.drain<void>();
         throw DependencyScanException(
           'Request to $current returned HTTP ${response.statusCode}.',
         );
       }
 
-      final bytes = <int>[];
-      await for (final chunk in response.timeout(requestTimeout)) {
-        onBytes(chunk.length);
-        bytes.addAll(chunk);
-      }
       return _FetchedResource(
         uri: current,
-        body: utf8.decode(bytes, allowMalformed: true),
+        body: utf8.decode(resource.bytes, allowMalformed: true),
         contentType: response.headers.contentType,
         redirectHosts: redirectHosts,
       );
     }
+  }
+
+  Future<({HttpClientResponse response, List<int> bytes})> _readResponse(
+    HttpClient client,
+    Uri uri, {
+    required void Function(int count) onBytes,
+  }) async {
+    final request = await client.getUrl(uri);
+    request.followRedirects = false;
+    request.headers.set(HttpHeaders.acceptHeader, '*/*');
+    final response = await request.close();
+    final bytes = <int>[];
+    await for (final chunk in response) {
+      onBytes(chunk.length);
+      bytes.addAll(chunk);
+    }
+    return (response: response, bytes: bytes);
   }
 
   Uri _documentBaseUri(Document document, Uri responseUri) {

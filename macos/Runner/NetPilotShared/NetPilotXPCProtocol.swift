@@ -7,6 +7,11 @@ import Foundation
     _ desired: NSArray,
     withReply reply: @escaping (NSDictionary) -> Void
   )
+  func reconcileHostMappingsDesired(
+    _ desired: NSArray,
+    deadline: Double,
+    withReply reply: @escaping (NSDictionary) -> Void
+  )
 }
 
 public enum NetPilotXPCConstants {

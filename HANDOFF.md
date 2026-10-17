@@ -8,9 +8,20 @@ here. Consolidate routine fixes into milestones; use Git history for details.
 The original `AGENTS.md` says Windows is deferred, but the user's later
 explicit Windows parity request superseded that scope note for this branch.
 
-## Current state and next gate (2026-09-26)
+## Current state and next gate (2026-10-17)
 
-- Tagged prerelease [`v1.0.1-test.3`](https://github.com/mahanpyk/netpilot/releases/tag/v1.0.1-test.3)
+- Release `v1.0.1-test.4` fixes macOS DNS/save hangs and adds optional managed LAN
+  hostname mappings. DNS uses the selected interface asynchronously with a
+  six-second deadline; helper waits run off the main thread. The rule editor
+  can snapshot one private LAN answer or accept an explicit IPv4, then
+  reconcile it through the signed helper before scanning. App version `1.0.1+3`
+  is published in the [test.4 prerelease](https://github.com/mahanpyk/netpilot/releases/tag/v1.0.1-test.4)
+  from `935d5c9`. Both platform builds and publication passed in
+  [run 39022163155](https://github.com/mahanpyk/netpilot/actions/runs/39022163155).
+  Upgrade/repair the macOS helper for the new hostname-mapping API; end-to-end
+  browser access with the upgraded helper remains a live acceptance step.
+
+- Previous prerelease [`v1.0.1-test.3`](https://github.com/mahanpyk/netpilot/releases/tag/v1.0.1-test.3)
   published macOS and Windows test assets from `75a5665`. Later documentation
   and release-workflow commits can advance `develop`/`main` without changing
   the tagged assets. The repository's former
@@ -19,7 +30,7 @@ explicit Windows parity request superseded that scope note for this branch.
   contains the route verification and browser reconnect work prompted by
   that test.
 
-- Tagged release [run 36190902897](https://github.com/mahanpyk/netpilot/actions/runs/36190902897)
+- Previous release [run 36190902897](https://github.com/mahanpyk/netpilot/actions/runs/36190902897)
   passed macOS analyze/tests and signed Rules-only DMG packaging, plus Windows
   Flutter analyze/tests, Release app and native service build, CTest, WDK
   driver build, Inf2Cat, test signing, WiX MSI/Burn, portable ZIP, and asset
@@ -245,6 +256,8 @@ netpilot_desktop/
 │   ├── route_reconciler_test.dart
 │   ├── routing_rule_test.dart
 │   ├── netpilot_controller_test.dart
+│   ├── host_mappings_test.dart
+│   ├── rule_editor_sheet_test.dart
 │   └── widget_test.dart
 └── macos/
     ├── Runner/Assets.xcassets/AppIcon.appiconset/  # NetPilot routing icon
@@ -278,11 +291,13 @@ netpilot_desktop/
     │   ├── NetPilotShared/
     │   │   ├── NetPilotXPCProtocol.swift
     │   │   ├── RouteSpec.swift
+    │   │   ├── ManagedHosts.swift   # validated owned block in /etc/hosts
     │   │   └── RouteManager.swift
     │   └── *entitlements            # App Sandbox OFF for MVP networking/helper
     └── RunnerTests/
         ├── AppRoutingConfigTests.swift
         ├── RunnerTests.swift
+        ├── ManagedHostsTests.swift
         └── RouteManagerTests.swift
 └── windows/
     ├── runner/                    # Flutter host + four native channels
@@ -332,6 +347,15 @@ enabled state, resolved IPv4 addresses, and route status. Sub-rules inherit the
 parent interface and lifecycle. Desired routes carry `tag = netpilot:<ruleId>`;
 sub-rule tags use `netpilot:<parentId>:sub:<subRuleId>`.
 
+An optional `hostIpv4` stores a fixed hostname-to-IPv4 mapping for macOS;
+legacy JSON defaults to null. The editor's LAN-hostname switch can populate
+it from a single RFC1918 DNS answer, or accept an explicit override for missing
+or incorrect DNS. Public DNS answers are not automatically pinned. Fixed
+mappings survive DNS Refresh; edit the IP or clear it and save to resolve again.
+Enabled private single-IP child hostnames inherit their mapped parent's hosts
+lifecycle. Disabling/deleting a rule removes only NetPilot-owned entries;
+matching manual hosts entries remain user-owned.
+
 ### AppRoutingRule
 
 `AppRoutingRule` persistence is schema version 2 and includes `platform`.
@@ -368,6 +392,7 @@ Runtime flow/byte/error metrics are returned separately by the provider.
 |---|---|---|
 | `listInterfaces` | — | `List<Map>` |
 | `resolveHost` | `{ host, interfaceId? }` | `{ ips: List<String> }` |
+| `reconcileHostMappings` (macOS) | `{ desired: [{ host, ipv4 }] }` | `{ ok, changed, errors: List<String> }` |
 | `getHelperStatus` | — | `{ installed, enabled, status, message? }` |
 | `installHelper` | — | status map (+ `ok` when possible) |
 | `reconcileRoutes` | `{ desired: List<RouteSpec> }` | `{ ok, added, removed, errors, routeChecks, connectionResetDestinations, restartedProcesses }` |
@@ -397,12 +422,34 @@ provider flow logs are forwarded once into the Runner/Flutter terminal.
 ### XPC (app ↔ helper)
 
 - Mach service: `com.netpilot.netpilotDesktop.helper`
-- Protocol methods: `ping`, `listManagedRoutes`, `reconcileDesired`
+- Protocol methods: `ping`, `listManagedRoutes`, `reconcileDesired`,
+  `reconcileHostMappingsDesired(_:deadline:withReply:)`
 - Launchd plist name: `com.netpilot.netpilotDesktop.helper.plist`
 - Helper binary path in app: `Contents/MacOS/NetPilotHelper`
 - Plist embedded at: `Contents/Library/LaunchDaemons/`
 
 **Security:** Destination must be IPv4 CIDR; gateway optional IPv4; interface BSD-like name; tag must start with `netpilot:`. Fixed `/sbin/route` argv only. Managed inventory persisted under `/Library/Application Support/NetPilot/managed_routes.json`.
+
+Hosts reconciliation accepts exact `{host, ipv4}` mappings plus an XPC-only
+absolute deadline (Unix seconds) supplied by the client. The helper validates
+canonical IPv4 and ASCII hostnames, rejects conflicting manual aliases or
+malformed markers, and changes only the block bounded by
+`# BEGIN NETPILOT MANAGED HOSTS v1` / `# END NETPILOT MANAGED HOSTS v1` in the
+fixed `/etc/hosts` path. Empty desired removes that block. It refuses symlinks
+and nonregular files, caps requests at 1024 mappings and files at 1 MB, and
+checks concurrent changes/expiry before atomic replacement. Unmanaged text,
+ownership, mode, ACLs and xattrs are preserved. DNS cache refresh uses only
+bounded fixed `dscacheutil -flushcache` and `killall -HUP mDNSResponder` commands.
+The existing same-Team signed-client XPC requirement protects this method.
+Old installed helpers require Repair for nonempty mappings; an empty sync
+with no owned markers succeeds locally without calling an unknown selector.
+
+macOS resolves IPv4 through `DNSServiceGetAddrInfo` using the selected
+interface index, preserving `/etc/hosts` precedence. DNS work/cancellation
+shares a private serial queue with a six-second deadline; invalid interface
+ids fail rather than falling back to the default VPN resolver. Inventory and
+synchronous helper operations run on another worker queue, with Flutter
+results returned on the main queue. Window actions remain on the main queue.
 
 `routeChecks` contains the destination, expected interface/gateway, actual
 interface/gateway returned by `/sbin/route -n get`, verification state, and an
@@ -538,11 +585,16 @@ Logs contain identity/interface/protocol/decision/errors but never payload data.
 
 ## URL dependency discovery
 
-Saving an HTTP(S) URL first persists and applies its parent hostname so the scan
-uses the selected route. `HttpDependencyScanner` then follows up to 5 redirects,
+Saving an HTTP(S) URL first persists and applies its parent hostname/mapping
+so the scan uses the selected route. Unresolved or unapplied parents skip the
+scan and retain an actionable error. `HttpDependencyScanner` follows up to 5 redirects,
 parses resource-bearing HTML elements and inline JavaScript request expressions,
 and downloads up to 20 same-origin JavaScript files. Each request has a 10-second
-timeout and a scan can consume at most 10 MB. Ordinary page links are ignored.
+deadline including the full response body. The HTTP scan has a 30-second total
+deadline that closes outstanding requests. Redirect/error bodies also count
+toward the 10 MB total. Child DNS runs four lookups at once with a separate
+30-second total deadline; Dart lookups have a 10-second fallback bound.
+Ordinary page links are ignored.
 JavaScript is analyzed statically and never executed; authenticated pages do not
 share browser cookies.
 
@@ -559,16 +611,19 @@ other non-conflicting routes still apply.
 
 ## Testing
 
-Toolchain baseline: **Flutter 3.47.4 stable / Dart 3.13.3**. Minimum SDK
+Toolchain baseline: **Flutter 3.47.4 stable / Dart 3.13.3**, pinned for this
+project in `.fvmrc`. Run `fvm use v3.47.4` after cloning and use
+`fvm flutter` for project commands; the global FVM SDK is independent.
+The generated `.fvm/` cache and SDK links are ignored. Minimum SDK
 constraints are declared in `pubspec.yaml`. `pubspec.lock` is currently ignored
 and not tracked, so CI resolves dependencies on each run. CocoaPods and Runner
 both target macOS 14.0.
 
 ```bash
-PUB_HOSTED_URL=https://pub.dev flutter pub get   # if corporate mirror fails
-flutter analyze
-flutter test
-flutter build macos --debug
+PUB_HOSTED_URL=https://pub.dev fvm flutter pub get   # if corporate mirror fails
+fvm flutter analyze
+fvm flutter test
+fvm flutter build macos --debug
 ```
 
 XCTest: `RouteSpec` validation + `RouteManager` reconcile argv and per-app exact
@@ -612,8 +667,12 @@ CI build must not be reported as successful split-tunneling integration.
   HTTP/2/QUIC sessions in a Chromium browser with an active UDP endpoint.
   Windows Firefox is not automatically restarted. Live behavior still needs
   validation on Windows 10/11.
-- macOS `resolveHost` uses system DNS. The Windows bridge requests DNS on the
-  selected interface; live validation with split adapters is still pending.
+- macOS and Windows request DNS on the selected interface. macOS scoped LAN
+  lookup was verified locally with an active VPN; Windows split-adapter
+  validation remains pending. Browser DNS remains system-wide: macOS mappings
+  cover managed names; multiple private A records require choosing an explicit
+  address. Manual hosts conflicts are reported, not overwritten. Mappings
+  do not bypass TLS certificate errors.
 - Helper install needs code signing + user Login Items approval.
 - System Extension activation and end-to-end TCP/UDP/QUIC egress verification
   require an Apple Development/Developer ID certificate and provisioning
@@ -672,6 +731,34 @@ CI build must not be reported as successful split-tunneling integration.
 | IPv6 | Not started |
 
 ## Changelog
+
+- **2026-10-17 — Published test release v1.0.1-test.4.** Commit `935d5c9`
+  and the annotated tag were pushed to GitHub. Release run `39022163155`
+  passed both platforms and published the signed macOS DMG, Windows MSI/Setup,
+  portable ZIP, matching driver test certificate, and SHA-256 checksums.
+
+- **2026-10-17 — Prepare test release v1.0.1-test.4.** Incremented the app
+  build to `1.0.1+3` and recorded the LAN DNS/hosts and responsive-save changes
+  in the versioned changelog. The tag-triggered workflow remains responsible
+  for building, signing, and publishing both platforms' packages.
+
+- **2026-10-17 — LAN hostname mappings and responsive saves.** Added optional
+  persisted `hostIpv4`, editor controls, structured macOS hosts reconciliation
+  through the signed helper, owned-block safety tests, and selected-interface
+  asynchronous DNS. Removed DNS/XPC waits from the main thread, bounded HTTP
+  and child DNS work, skipped scans for unresolved/unapplied parents, and
+  guarded editor dismissal and late save/scan results after delete/newer edits.
+  Clearing a saved pin temporarily removes only its owned mappings for a fresh
+  LAN query, then restores current state until normal apply. Flutter analysis,
+  all 59 Flutter tests, 5 DNS/route XCTest cases, and 12 temporary-file hosts
+  safety tests pass. A local signed universal Rules-only DMG builds; installing
+  the new helper and checking browser access is still a live acceptance step.
+  Existing published assets and this machine's installed app/helper are unchanged.
+
+- **2026-10-17 — Project-local FVM setup.** Pinned this project to the newest
+  locally installed Flutter SDK, `v3.47.4` (Dart 3.13.3), in `.fvmrc` and
+  ignored generated `.fvm/` files. The global SDK selection is unchanged.
+  `fvm flutter pub get` and `fvm flutter analyze --no-pub` pass.
 
 - **2026-09-26 — MIT license.** Added a root MIT `LICENSE` with copyright
   holder `mahanpyk` and updated README and the Unreleased changelog section.

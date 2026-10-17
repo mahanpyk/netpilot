@@ -15,6 +15,7 @@
 | Destination rules | Route a hostname, HTTP(S) URL, IPv4 address, or CIDR range through a selected Wi-Fi or Ethernet interface. A URL rule routes by hostname/IP, not by URL path. |
 | URL dependency discovery | On Save, scan a public page's HTML, inline JavaScript, same-origin JavaScript files, and redirects for additional hosts. Show them as independently switchable sub-rules that inherit the parent interface. |
 | Network inventory | Show active interfaces, IPv4 addresses, gateways, DNS servers, and the default route. |
+| LAN hostname mappings (macOS) | Resolve through the selected LAN interface and manage a fixed private hostname-to-IPv4 mapping through the signed helper; manual hosts entries are preserved. |
 | Route diagnostics | Show resolution, route application, conflicts, and helper errors in the app and terminal (`[NetPilot]`). Refresh DNS and reapply existing rules without rescanning the page. |
 | Browser reconnect | After route changes, refresh affected Safari/Chromium networking services on macOS so open tabs can establish new connections over the updated route. Windows has a corresponding implementation awaiting live testing. |
 | Per-app routing (development) | Source code for macOS Transparent Proxy and Windows WFP-based routing of selected apps over a physical interface. This is **not available in the macOS test DMG** and has not passed the required signed/live integration gates. |
@@ -42,12 +43,13 @@ The Windows installer, MSI, portable ZIP, and matching driver test certificate a
 
 ### macOS
 
-Requirements: Flutter **3.47.4+** (Dart **3.13.3+**), Xcode 15+, and macOS 14+. Install Flutter using the [official guide](https://docs.flutter.dev/get-started/install), then run:
+Requirements: Flutter **3.47.4+** (Dart **3.13.3+**), Xcode 15+, and macOS 14+. This project pins Flutter **3.47.4** through FVM in `.fvmrc`. With FVM installed, run:
 
 ```bash
-flutter pub get
+fvm use v3.47.4
+fvm flutter pub get
 open macos/Runner.xcworkspace
-flutter run -d macos
+fvm flutter run -d macos
 ```
 
 Configure the same Apple Development Team for the Runner and privileged helper in Xcode before testing route changes. An unsigned local build can show the UI and networks, but it cannot validate privileged routing or activate the per-app System Extension. The extension requires approved Network Extension/System Extension entitlements and a suitable provisioning profile; see the [macOS signed integration gate](macos/IntegrationTests/APP_ROUTING.md).
@@ -61,14 +63,29 @@ Requirements: Visual Studio 2022 with Desktop C++, Windows SDK and WDK, CMake, F
 Run the Flutter checks on your development platform:
 
 ```bash
-flutter pub get
-flutter analyze
-flutter test
+fvm flutter pub get
+fvm flutter analyze
+fvm flutter test
 ```
 
 On macOS, `flutter build macos --debug` checks the desktop build. On Windows, follow the [Windows guide](windows/README.md) for native CTest, driver, signing, and installer checks. Real route and per-app egress behavior must also be tested on a machine with two usable network interfaces; CI compilation alone is insufficient.
 
 ## How it works
+
+### LAN hostnames (v1.0.1-test.4+)
+
+On macOS, select the LAN interface when adding a hostname/URL. With **Make
+this LAN hostname available to other apps** enabled, NetPilot saves a single
+private IPv4 answer from LAN DNS as a fixed hostname mapping. If DNS is missing
+or incorrect, enter the known address in **LAN IPv4 (optional override)**.
+The signed helper applies the mapping for other apps before scanning the page;
+an older installed helper may need **Repair Helper**. Existing rules opt in by
+editing and enabling the switch.
+
+Mappings stay fixed until edited. Disabling/deleting a rule removes NetPilot's
+owned entry; existing manual hosts entries remain untouched, and conflicts are
+reported. No terminal/root shell is needed. A TLS certificate error during a
+dependency scan is reported separately from route verification.
 
 NetPilot stores destination and app rules in the current user's application-support directory. The Flutter UI resolves destinations and reconciles desired routes when rules or interfaces change. On macOS, route mutations go through a signed `SMAppService`/XPC helper; on Windows they go through a validated named pipe to a LocalSystem service. The app does not run arbitrary shell commands from rule input. [HANDOFF.md](HANDOFF.md) documents the native contracts, persistence formats, and current integration gates.
 

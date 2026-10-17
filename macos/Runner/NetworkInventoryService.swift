@@ -1,9 +1,11 @@
 import Foundation
 import SystemConfiguration
+import dnssd
 
 final class NetworkInventoryService {
   private var store: SCDynamicStore?
   private var onChange: (() -> Void)?
+  private let hostResolver = IPv4HostResolver()
 
   func startMonitoring(onChange: @escaping () -> Void) {
     self.onChange = onChange
@@ -118,54 +120,14 @@ final class NetworkInventoryService {
     }
   }
 
-  func resolveHost(_ host: String, interfaceId: String?) -> [String: Any] {
-    var hints = addrinfo(
-      ai_flags: AI_ADDRCONFIG,
-      ai_family: AF_INET,
-      ai_socktype: SOCK_STREAM,
-      ai_protocol: 0,
-      ai_addrlen: 0,
-      ai_canonname: nil,
-      ai_addr: nil,
-      ai_next: nil
-    )
-    var resultPtr: UnsafeMutablePointer<addrinfo>?
-    let status = getaddrinfo(host, nil, &hints, &resultPtr)
-    defer {
-      if let resultPtr {
-        freeaddrinfo(resultPtr)
-      }
+  func resolveHost(
+    _ host: String,
+    interfaceId: String?,
+    completion: @escaping ([String: Any]) -> Void
+  ) {
+    hostResolver.resolve(host, interfaceId: interfaceId) { ips in
+      completion(["ips": ips])
     }
-    guard status == 0, let first = resultPtr else {
-      return ["ips": [String]()]
-    }
-
-    var ips: [String] = []
-    var cursor: UnsafeMutablePointer<addrinfo>? = first
-    while let info = cursor?.pointee {
-      if info.ai_family == AF_INET, let addr = info.ai_addr {
-        var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-        let g = getnameinfo(
-          addr,
-          socklen_t(info.ai_addrlen),
-          &hostname,
-          socklen_t(hostname.count),
-          nil,
-          0,
-          NI_NUMERICHOST
-        )
-        if g == 0 {
-          let ip = String(cString: hostname)
-          if !ips.contains(ip) {
-            ips.append(ip)
-          }
-        }
-      }
-      cursor = info.ai_next
-    }
-    // interfaceId reserved for future scoped DNS; included for contract stability
-    _ = interfaceId
-    return ["ips": ips]
   }
 
   private func currentDefaultInterface() -> String? {
@@ -200,5 +162,182 @@ final class NetworkInventoryService {
       return "ethernet"
     }
     return "other"
+  }
+}
+
+// All DNS work, callbacks, and cancellation share this serial queue. In
+// particular, never block the Flutter/macOS main thread inside getaddrinfo.
+protocol IPv4DNSQuery: AnyObject {
+  func start(
+    host: String,
+    interfaceIndex: UInt32,
+    reply: @escaping (DNSServiceFlags, DNSServiceErrorType, String?) -> Void
+  ) -> DNSServiceErrorType
+  func cancel()
+}
+
+final class IPv4HostResolver {
+  private let queue = DispatchQueue(label: "com.netpilot.ipv4-dns")
+  private let timeout: TimeInterval
+  private let hostsContents: () -> String?
+  private let makeQuery: (DispatchQueue) -> IPv4DNSQuery
+
+  init(
+    timeout: TimeInterval = 6,
+    hostsContents: @escaping () -> String? = {
+      try? String(contentsOfFile: "/etc/hosts", encoding: .utf8)
+    },
+    makeQuery: @escaping (DispatchQueue) -> IPv4DNSQuery = { DNSServiceIPv4Query(queue: $0) }
+  ) {
+    self.timeout = timeout
+    self.hostsContents = hostsContents
+    self.makeQuery = makeQuery
+  }
+
+  func resolve(
+    _ host: String,
+    interfaceId: String?,
+    completion: @escaping ([String]) -> Void
+  ) {
+    queue.async {
+      let local = Self.hostsAddresses(host: host, contents: self.hostsContents() ?? "")
+      if !local.isEmpty {
+        DispatchQueue.main.async { completion(local) }
+        return
+      }
+      var address = in_addr()
+      if host.withCString({ inet_pton(AF_INET, $0, &address) }) == 1 {
+        DispatchQueue.main.async { completion([host]) }
+        return
+      }
+      let interfaceIndex: UInt32
+      if let interfaceId, !interfaceId.isEmpty {
+        interfaceIndex = if_nametoindex(interfaceId)
+        guard interfaceIndex != 0 else {
+          DispatchQueue.main.async { completion([]) }
+          return
+        }
+      } else {
+        interfaceIndex = 0
+      }
+      let request = IPv4ResolutionRequest(
+        queue: self.queue,
+        query: self.makeQuery(self.queue),
+        timeout: self.timeout,
+        completion: completion
+      )
+      request.start(host: host, interfaceIndex: interfaceIndex)
+    }
+  }
+
+  // Hosts entries must retain precedence over scoped corporate DNS so NetPilot
+  // routes the same IPv4 address that browsers receive from the system resolver.
+  static func hostsAddresses(host: String, contents: String) -> [String] {
+    func normalized(_ value: String) -> String {
+      value.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+    }
+    let name = normalized(host)
+    guard !name.isEmpty else { return [] }
+    var addresses: [String] = []
+    for line in contents.split(whereSeparator: \.isNewline) {
+      let fields = line.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
+        .split(whereSeparator: \.isWhitespace).map(String.init)
+      guard fields.count >= 2,
+            fields.dropFirst().contains(where: { normalized($0) == name }) else { continue }
+      var address = in_addr()
+      guard fields[0].withCString({ inet_pton(AF_INET, $0, &address) }) == 1 else { continue }
+      if !addresses.contains(fields[0]) { addresses.append(fields[0]) }
+    }
+    return addresses
+  }
+}
+
+private final class IPv4ResolutionRequest {
+  private let queue: DispatchQueue
+  private let query: IPv4DNSQuery
+  private let timeout: TimeInterval
+  private var completion: (([String]) -> Void)?
+  private var ips: [String] = []
+
+  init(
+    queue: DispatchQueue,
+    query: IPv4DNSQuery,
+    timeout: TimeInterval,
+    completion: @escaping ([String]) -> Void
+  ) {
+    self.queue = queue
+    self.query = query
+    self.timeout = timeout
+    self.completion = completion
+  }
+
+  func start(host: String, interfaceIndex: UInt32) {
+    // This deadline retains the request until completion and bounds silent DNS
+    // servers. Deallocation on the query's queue also prevents late callbacks.
+    queue.asyncAfter(deadline: .now() + timeout) { self.finish() }
+    let status = query.start(host: host, interfaceIndex: interfaceIndex) { [weak self] flags, error, ip in
+      guard let self, self.completion != nil else { return }
+      if error != kDNSServiceErr_NoError { self.finish(); return }
+      if let ip, flags & DNSServiceFlags(kDNSServiceFlagsAdd) != 0, !self.ips.contains(ip) {
+        self.ips.append(ip)
+      }
+      if flags & DNSServiceFlags(kDNSServiceFlagsMoreComing) == 0 { self.finish() }
+    }
+    if status != kDNSServiceErr_NoError { finish() }
+  }
+
+  private func finish() {
+    guard let completion else { return }
+    self.completion = nil
+    query.cancel()
+    let result = ips.sorted()
+    DispatchQueue.main.async { completion(result) }
+  }
+}
+
+private final class DNSServiceIPv4Query: IPv4DNSQuery {
+  private let queue: DispatchQueue
+  private var service: DNSServiceRef?
+  private var reply: ((DNSServiceFlags, DNSServiceErrorType, String?) -> Void)?
+
+  init(queue: DispatchQueue) { self.queue = queue }
+
+  func start(
+    host: String,
+    interfaceIndex: UInt32,
+    reply: @escaping (DNSServiceFlags, DNSServiceErrorType, String?) -> Void
+  ) -> DNSServiceErrorType {
+    self.reply = reply
+    let status = DNSServiceGetAddrInfo(
+      &service,
+      DNSServiceFlags(kDNSServiceFlagsTimeout),
+      interfaceIndex,
+      DNSServiceProtocol(kDNSServiceProtocol_IPv4),
+      host,
+      { _, flags, _, error, _, address, _, context in
+        guard let context else { return }
+        let query = Unmanaged<DNSServiceIPv4Query>.fromOpaque(context).takeUnretainedValue()
+        var ip: String?
+        if error == kDNSServiceErr_NoError, let address, address.pointee.sa_family == AF_INET {
+          var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+          if getnameinfo(
+            address, socklen_t(MemoryLayout<sockaddr_in>.size),
+            &hostname, socklen_t(hostname.count), nil, 0, NI_NUMERICHOST
+          ) == 0 {
+            ip = String(cString: hostname)
+          }
+        }
+        query.reply?(flags, error, ip)
+      },
+      Unmanaged.passUnretained(self).toOpaque()
+    )
+    guard status == kDNSServiceErr_NoError, let service else { return status }
+    return DNSServiceSetDispatchQueue(service, queue)
+  }
+
+  func cancel() {
+    reply = nil
+    if let service { DNSServiceRefDeallocate(service) }
+    service = nil
   }
 }

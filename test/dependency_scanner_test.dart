@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -81,6 +82,118 @@ void main() {
       expect(result.destinations, isNot(contains('docs.example.test')));
     },
   );
+
+  test('bounds a redirect response whose body never completes', () async {
+    server.listen((request) {
+      request.response.statusCode = HttpStatus.found;
+      request.response.headers.set(HttpHeaders.locationHeader, '/next');
+      request.response.write('redirecting');
+      unawaited(request.response.flush());
+      // Deliberately never close the response body.
+    });
+
+    final scanner = HttpDependencyScanner(
+      requestTimeout: const Duration(milliseconds: 150),
+    );
+    await expectLater(
+      scanner
+          .scan(Uri.parse('http://127.0.0.1:${server.port}/start'))
+          .timeout(const Duration(seconds: 2)),
+      throwsA(
+        isA<DependencyScanException>().having(
+          (error) => error.message,
+          'message',
+          contains('timed out'),
+        ),
+      ),
+    );
+  });
+
+  test('bounds an actively trickling response by total request time', () async {
+    Timer? trickle;
+    addTearDown(() => trickle?.cancel());
+    server.listen((request) {
+      request.response.headers.contentType = ContentType.html;
+      trickle = Timer.periodic(const Duration(milliseconds: 20), (_) {
+        request.response.write(' ');
+        request.response.flush().ignore();
+      });
+    });
+
+    final scanner = HttpDependencyScanner(
+      requestTimeout: const Duration(milliseconds: 150),
+    );
+    await expectLater(
+      scanner
+          .scan(Uri.parse('http://127.0.0.1:${server.port}/slow'))
+          .timeout(const Duration(seconds: 2)),
+      throwsA(isA<DependencyScanException>()),
+    );
+  });
+
+  test('bounds the whole scan across multiple responsive scripts', () async {
+    final delays = <Timer>[];
+    addTearDown(() {
+      for (final timer in delays) {
+        timer.cancel();
+      }
+    });
+    server.listen((request) {
+      if (request.uri.path == '/page') {
+        request.response.headers.contentType = ContentType.html;
+        request.response.write(
+          '<script src="/one.js"></script><script src="/two.js"></script>'
+          '<script src="/three.js"></script>',
+        );
+        unawaited(request.response.close());
+      } else {
+        delays.add(
+          Timer(const Duration(milliseconds: 100), () {
+            request.response.write("fetch('https://api.example.test')");
+            request.response.close().ignore();
+          }),
+        );
+      }
+    });
+
+    final scanner = HttpDependencyScanner(
+      requestTimeout: const Duration(seconds: 2),
+      scanTimeout: const Duration(milliseconds: 150),
+    );
+    await expectLater(
+      scanner
+          .scan(Uri.parse('http://127.0.0.1:${server.port}/page'))
+          .timeout(const Duration(seconds: 2)),
+      throwsA(
+        isA<DependencyScanException>().having(
+          (error) => error.message,
+          'message',
+          contains('timed out'),
+        ),
+      ),
+    );
+  });
+
+  test('counts redirect bodies toward the scan byte budget', () async {
+    server.listen((request) async {
+      request.response.statusCode = HttpStatus.found;
+      request.response.headers.set(HttpHeaders.locationHeader, '/next');
+      request.response.write('x' * 100);
+      await request.response.close();
+    });
+
+    await expectLater(
+      HttpDependencyScanner(maxTotalBytes: 64)
+          .scan(Uri.parse('http://127.0.0.1:${server.port}/start')),
+      throwsA(
+        isA<DependencyScanException>().having(
+          (error) => error.message,
+          'message',
+          contains('exceeded'),
+        ),
+      ),
+    );
+  });
 
   test('rejects a non-HTML root response', () async {
     server.listen((request) async {

@@ -7,6 +7,23 @@ identified separately from features available in downloadable packages.
 
 ## [Unreleased]
 
+No changes yet.
+
+## [v1.0.1-test.4] - 2026-10-17
+
+### Added
+
+- macOS LAN hostname mappings: save a private address returned by the selected
+  interface's DNS, or enter an IPv4 override when DNS is missing/incorrect.
+  The signed helper manages an owned hosts block while preserving manual entries.
+
+### Fixed
+
+- macOS DNS now honors the selected network interface and runs off the UI thread.
+- DNS/helper waits no longer freeze the window. URL scans have overall deadlines
+  and are skipped when the parent cannot resolve or its route cannot be applied.
+- Dismissing a rule editor during DNS work no longer triggers widget errors.
+
 ### Documentation and release process
 
 - Licensed the project under MIT.
@@ -14,6 +31,13 @@ identified separately from features available in downloadable packages.
   testing, contribution, and release instructions.
 - Release notes are generated from commits between version tags; rerunning a
   successful tag workflow refreshes the existing release notes and assets.
+
+### Release status
+
+- Published macOS and Windows test packages with app version `1.0.1+3` after
+  both CI build gates passed in run `39022163155`. Install/repair
+  the macOS helper to enable hostname mappings after upgrading. Live browser
+  and Windows routing acceptance remain pending.
 
 ## [v1.0.1-test.3] - 2026-09-26
 
@@ -72,7 +96,8 @@ identified separately from features available in downloadable packages.
   lacked Flutter-generated build configuration files. The fix is in
   `v1.0.1-test.2`.
 
-[Unreleased]: https://github.com/mahanpyk/netpilot/compare/v1.0.1-test.3...main
+[Unreleased]: https://github.com/mahanpyk/netpilot/compare/v1.0.1-test.4...develop
+[v1.0.1-test.4]: https://github.com/mahanpyk/netpilot/compare/v1.0.1-test.3...v1.0.1-test.4
 [v1.0.1-test.3]: https://github.com/mahanpyk/netpilot/compare/v1.0.1-test.2...v1.0.1-test.3
 [v1.0.1-test.2]: https://github.com/mahanpyk/netpilot/compare/v1.0.1-test.1...v1.0.1-test.2
 [v1.0.1-test.1]: https://github.com/mahanpyk/netpilot/tree/v1.0.1-test.1

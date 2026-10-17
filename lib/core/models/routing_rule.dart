@@ -93,6 +93,7 @@ class RoutingRule {
     this.dependencyScanError,
     this.label,
     this.lastError,
+    this.hostIpv4,
   });
 
   final String id;
@@ -106,6 +107,9 @@ class RoutingRule {
   final RuleStatus status;
   final String? lastError;
   final DateTime updatedAt;
+
+  /// Explicit LAN address for this hostname, also reconciled into managed hosts.
+  final String? hostIpv4;
   final List<RoutingSubRule> subRules;
   final DependencyScanStatus dependencyScanStatus;
   final String? dependencyScanError;
@@ -127,6 +131,8 @@ class RoutingRule {
     String? dependencyScanError,
     bool clearLastError = false,
     bool clearDependencyScanError = false,
+    String? hostIpv4,
+    bool clearHostIpv4 = false,
   }) {
     return RoutingRule(
       id: id ?? this.id,
@@ -146,6 +152,7 @@ class RoutingRule {
       dependencyScanError: clearDependencyScanError
           ? null
           : (dependencyScanError ?? this.dependencyScanError),
+      hostIpv4: clearHostIpv4 ? null : (hostIpv4 ?? this.hostIpv4),
     );
   }
 
@@ -164,6 +171,7 @@ class RoutingRule {
     'subRules': subRules.map((subRule) => subRule.toJson()).toList(),
     'dependencyScanStatus': dependencyScanStatus.name,
     'dependencyScanError': dependencyScanError,
+    'hostIpv4': hostIpv4,
   };
 
   factory RoutingRule.fromJson(Map<String, Object?> json) {
@@ -197,6 +205,7 @@ class RoutingRule {
             DependencyScanStatus.notApplicable.name,
       ),
       dependencyScanError: json['dependencyScanError'] as String?,
+      hostIpv4: json['hostIpv4'] as String?,
     );
   }
 }

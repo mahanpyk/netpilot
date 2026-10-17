@@ -3,6 +3,7 @@ import Security
 
 final class HelperDelegate: NSObject, NSXPCListenerDelegate, NetPilotXPCProtocol {
   private let routeManager = RouteManager()
+  private let managedHosts = ManagedHosts()
   private let clientRequirement: String? = {
     var ownCode: SecCode?
     guard SecCodeCopySelf([], &ownCode) == errSecSuccess, let ownCode else {
@@ -42,6 +43,14 @@ final class HelperDelegate: NSObject, NSXPCListenerDelegate, NetPilotXPCProtocol
 
   func ping(withReply reply: @escaping (Bool) -> Void) {
     reply(true)
+  }
+
+  func reconcileHostMappingsDesired(
+    _ desired: NSArray,
+    deadline: Double,
+    withReply reply: @escaping (NSDictionary) -> Void
+  ) {
+    reply(managedHosts.reconcile(desired: desired, deadline: deadline).dictionary as NSDictionary)
   }
 
   func listManagedRoutes(withReply reply: @escaping (NSArray) -> Void) {
