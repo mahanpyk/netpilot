@@ -10,15 +10,18 @@ explicit Windows parity request superseded that scope note for this branch.
 
 ## Current state and next gate (2026-10-17)
 
-- Local source fixes macOS DNS/save hangs and adds optional managed LAN
+- Release `v1.0.1-test.4` fixes macOS DNS/save hangs and adds optional managed LAN
   hostname mappings. DNS uses the selected interface asynchronously with a
   six-second deadline; helper waits run off the main thread. The rule editor
   can snapshot one private LAN answer or accept an explicit IPv4, then
-  reconcile it through the signed helper before scanning. These changes are
-  prepared for `v1.0.1-test.4` (app version `1.0.1+3`); publication is gated
-  by the existing macOS and Windows release workflow.
+  reconcile it through the signed helper before scanning. App version `1.0.1+3`
+  is published in the [test.4 prerelease](https://github.com/mahanpyk/netpilot/releases/tag/v1.0.1-test.4)
+  from `935d5c9`. Both platform builds and publication passed in
+  [run 39022163155](https://github.com/mahanpyk/netpilot/actions/runs/39022163155).
+  Upgrade/repair the macOS helper for the new hostname-mapping API; end-to-end
+  browser access with the upgraded helper remains a live acceptance step.
 
-- Tagged prerelease [`v1.0.1-test.3`](https://github.com/mahanpyk/netpilot/releases/tag/v1.0.1-test.3)
+- Previous prerelease [`v1.0.1-test.3`](https://github.com/mahanpyk/netpilot/releases/tag/v1.0.1-test.3)
   published macOS and Windows test assets from `75a5665`. Later documentation
   and release-workflow commits can advance `develop`/`main` without changing
   the tagged assets. The repository's former
@@ -27,7 +30,7 @@ explicit Windows parity request superseded that scope note for this branch.
   contains the route verification and browser reconnect work prompted by
   that test.
 
-- Tagged release [run 36190902897](https://github.com/mahanpyk/netpilot/actions/runs/36190902897)
+- Previous release [run 36190902897](https://github.com/mahanpyk/netpilot/actions/runs/36190902897)
   passed macOS analyze/tests and signed Rules-only DMG packaging, plus Windows
   Flutter analyze/tests, Release app and native service build, CTest, WDK
   driver build, Inf2Cat, test signing, WiX MSI/Burn, portable ZIP, and asset
@@ -728,6 +731,11 @@ CI build must not be reported as successful split-tunneling integration.
 | IPv6 | Not started |
 
 ## Changelog
+
+- **2026-10-17 — Published test release v1.0.1-test.4.** Commit `935d5c9`
+  and the annotated tag were pushed to GitHub. Release run `39022163155`
+  passed both platforms and published the signed macOS DMG, Windows MSI/Setup,
+  portable ZIP, matching driver test certificate, and SHA-256 checksums.
 
 - **2026-10-17 — Prepare test release v1.0.1-test.4.** Incremented the app
   build to `1.0.1+3` and recorded the LAN DNS/hosts and responsive-save changes

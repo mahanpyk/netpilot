@@ -15,6 +15,7 @@
 | Destination rules | Route a hostname, HTTP(S) URL, IPv4 address, or CIDR range through a selected Wi-Fi or Ethernet interface. A URL rule routes by hostname/IP, not by URL path. |
 | URL dependency discovery | On Save, scan a public page's HTML, inline JavaScript, same-origin JavaScript files, and redirects for additional hosts. Show them as independently switchable sub-rules that inherit the parent interface. |
 | Network inventory | Show active interfaces, IPv4 addresses, gateways, DNS servers, and the default route. |
+| LAN hostname mappings (macOS) | Resolve through the selected LAN interface and manage a fixed private hostname-to-IPv4 mapping through the signed helper; manual hosts entries are preserved. |
 | Route diagnostics | Show resolution, route application, conflicts, and helper errors in the app and terminal (`[NetPilot]`). Refresh DNS and reapply existing rules without rescanning the page. |
 | Browser reconnect | After route changes, refresh affected Safari/Chromium networking services on macOS so open tabs can establish new connections over the updated route. Windows has a corresponding implementation awaiting live testing. |
 | Per-app routing (development) | Source code for macOS Transparent Proxy and Windows WFP-based routing of selected apps over a physical interface. This is **not available in the macOS test DMG** and has not passed the required signed/live integration gates. |
@@ -71,7 +72,7 @@ On macOS, `flutter build macos --debug` checks the desktop build. On Windows, fo
 
 ## How it works
 
-### LAN hostnames (unreleased source)
+### LAN hostnames (v1.0.1-test.4+)
 
 On macOS, select the LAN interface when adding a hostname/URL. With **Make
 this LAN hostname available to other apps** enabled, NetPilot saves a single

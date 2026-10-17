@@ -34,8 +34,8 @@ No changes yet.
 
 ### Release status
 
-- Tagged test release prepared with app version `1.0.1+3`; macOS and Windows
-  packages are published only after both CI build gates pass. Install/repair
+- Published macOS and Windows test packages with app version `1.0.1+3` after
+  both CI build gates passed in run `39022163155`. Install/repair
   the macOS helper to enable hostname mappings after upgrading. Live browser
   and Windows routing acceptance remain pending.
 
