@@ -71,6 +71,11 @@ class _RuleTileState extends State<RuleTile> {
                           'IPs: ${rule.resolvedIps.join(', ')}',
                           style: theme.textTheme.bodySmall,
                         ),
+                      if (rule.hostIpv4 != null)
+                        Text(
+                          'LAN hostname mapping: ${rule.hostIpv4}',
+                          style: theme.textTheme.bodySmall,
+                        ),
                       if (rule.dependencyScanStatus ==
                           DependencyScanStatus.pending)
                         Text(

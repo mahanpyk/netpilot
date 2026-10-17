@@ -46,7 +46,9 @@
 		A1B2C3D40200000000000004 /* NetPilotXPCProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40100000000000004 /* NetPilotXPCProtocol.swift */; };
 		A1B2C3D40200000000000005 /* RouteSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40100000000000005 /* RouteSpec.swift */; };
 		A1B2C3D40200000000000006 /* RouteManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40100000000000006 /* RouteManager.swift */; };
+		A1B2C3D40200000000000009 /* ManagedHosts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40100000000000009 /* ManagedHosts.swift */; };
 		A1B2C3D40200000000000007 /* RouteManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40100000000000007 /* RouteManagerTests.swift */; };
+		A1B2C3D4020000000000000A /* ManagedHostsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4010000000000000A /* ManagedHostsTests.swift */; };
 		ABABF4CBD32C6091A089362F /* AppRoutingConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAF648E0BE8A4ECDFC5BE375 /* AppRoutingConfig.swift */; };
 		B5FFD6701536D7CB6387E748 /* InterfaceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 018B45ED161B831B984FCA3D /* InterfaceResolver.swift */; };
 		DBF8111C183A4F1AC959F187 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F7DC55525640A9D837FB4E3D /* Pods_Runner.framework */; };
@@ -139,7 +141,9 @@
 		A1B2C3D40100000000000004 /* NetPilotXPCProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetPilotXPCProtocol.swift; sourceTree = "<group>"; };
 		A1B2C3D40100000000000005 /* RouteSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteSpec.swift; sourceTree = "<group>"; };
 		A1B2C3D40100000000000006 /* RouteManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteManager.swift; sourceTree = "<group>"; };
+		A1B2C3D40100000000000009 /* ManagedHosts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedHosts.swift; sourceTree = "<group>"; };
 		A1B2C3D40100000000000007 /* RouteManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteManagerTests.swift; sourceTree = "<group>"; };
+		A1B2C3D4010000000000000A /* ManagedHostsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedHostsTests.swift; sourceTree = "<group>"; };
 		BAF648E0BE8A4ECDFC5BE375 /* AppRoutingConfig.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppRoutingConfig.swift; sourceTree = "<group>"; };
 		C13DC4DF4C77ED4538AA21CD /* NetPilotTransparentProxy.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = NetPilotTransparentProxy.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
 		C477B6A2BA6824DADC114855 /* AppRoutingPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppRoutingPlugin.swift; sourceTree = "<group>"; };
@@ -212,6 +216,7 @@
 			children = (
 				331C80D7294CF71000263BE5 /* RunnerTests.swift */,
 				A1B2C3D40100000000000007 /* RouteManagerTests.swift */,
+				A1B2C3D4010000000000000A /* ManagedHostsTests.swift */,
 				241789170C5CB99BD627C5EC /* AppRoutingConfigTests.swift */,
 			);
 			path = RunnerTests;
@@ -315,6 +320,7 @@
 				A1B2C3D40100000000000004 /* NetPilotXPCProtocol.swift */,
 				A1B2C3D40100000000000005 /* RouteSpec.swift */,
 				A1B2C3D40100000000000006 /* RouteManager.swift */,
+				A1B2C3D40100000000000009 /* ManagedHosts.swift */,
 			);
 			path = NetPilotShared;
 			sourceTree = "<group>";
@@ -581,6 +587,7 @@
 			files = (
 				331C80D8294CF71000263BE5 /* RunnerTests.swift in Sources */,
 				A1B2C3D40200000000000007 /* RouteManagerTests.swift in Sources */,
+				A1B2C3D4020000000000000A /* ManagedHostsTests.swift in Sources */,
 				ABABF4CBD32C6091A089362F /* AppRoutingConfig.swift in Sources */,
 				050DC1E1225BF3EE604504C3 /* AppRoutingConfigTests.swift in Sources */,
 			);
@@ -599,6 +606,7 @@
 				A1B2C3D40200000000000004 /* NetPilotXPCProtocol.swift in Sources */,
 				A1B2C3D40200000000000005 /* RouteSpec.swift in Sources */,
 				A1B2C3D40200000000000006 /* RouteManager.swift in Sources */,
+				A1B2C3D40200000000000009 /* ManagedHosts.swift in Sources */,
 				97893AEF298BDF11DB5E62EE /* AppInspector.swift in Sources */,
 				85930941BB0C74842A837902 /* AppRoutingManager.swift in Sources */,
 				6915F301E482B6CE80F0AAD6 /* AppRoutingPlugin.swift in Sources */,

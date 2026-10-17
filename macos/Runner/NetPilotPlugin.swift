@@ -5,6 +5,7 @@ final class NetPilotPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
   private let inventory = NetworkInventoryService()
   private let helper = HelperXPCClient()
   private var eventSink: FlutterEventSink?
+  private let worker = DispatchQueue(label: "com.netpilot.network-platform")
 
   static func register(with registrar: FlutterPluginRegistrar) {
     let instance = NetPilotPlugin()
@@ -28,20 +29,39 @@ final class NetPilotPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
   func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
     case "listInterfaces":
-      result(inventory.listInterfaces())
+      worker.async {
+        let interfaces = self.inventory.listInterfaces()
+        DispatchQueue.main.async { result(interfaces) }
+      }
     case "resolveHost":
       let args = call.arguments as? [String: Any]
       let host = (args?["host"] as? String) ?? ""
       let interfaceId = args?["interfaceId"] as? String
-      result(inventory.resolveHost(host, interfaceId: interfaceId))
+      inventory.resolveHost(host, interfaceId: interfaceId, completion: result)
     case "getHelperStatus":
-      result(helper.status())
+      worker.async {
+        let status = self.helper.status()
+        DispatchQueue.main.async { result(status) }
+      }
     case "installHelper":
-      result(helper.install())
+      worker.async {
+        let status = self.helper.install()
+        DispatchQueue.main.async { result(status) }
+      }
     case "reconcileRoutes":
       let args = call.arguments as? [String: Any]
       let desired = (args?["desired"] as? [[String: Any]]) ?? []
-      result(helper.reconcile(desired: desired))
+      worker.async {
+        let applied = self.helper.reconcile(desired: desired)
+        DispatchQueue.main.async { result(applied) }
+      }
+    case "reconcileHostMappings":
+      let args = call.arguments as? [String: Any]
+      let desired = (args?["desired"] as? [[String: Any]]) ?? []
+      worker.async {
+        let applied = self.helper.reconcileHostMappings(desired: desired)
+        DispatchQueue.main.async { result(applied) }
+      }
     case "windowAction":
       let args = call.arguments as? [String: Any]
       switch args?["action"] as? String {

@@ -16,6 +16,7 @@ mkdir -p "$LAUNCHD_DIR"
 SOURCES=(
   "${SHARED}/NetPilotXPCProtocol.swift"
   "${SHARED}/RouteSpec.swift"
+  "${SHARED}/ManagedHosts.swift"
   "${SHARED}/RouteManager.swift"
   "${HELPER_SRC}/HelperDelegate.swift"
   "${HELPER_SRC}/main.swift"

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netpilot_desktop/core/models/routing_rule.dart';
 import 'package:netpilot_desktop/core/platform/network_platform.dart';
@@ -22,6 +24,300 @@ void main() {
     expect(result.restartedProcesses.single.pid, 424);
     expect(result.restartedProcesses.single.name, 'Google Chrome Helper');
   });
+
+  test('unresolved URL saves without an HTTP dependency scan', () async {
+    final scanner = FakeDependencyScanner([]);
+    final repo = MemoryRulesRepository();
+    final controller = NetPilotController(
+      platform: FakeNetworkPlatform(),
+      rulesRepository: repo,
+      dependencyScanner: scanner,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.start();
+    await controller.upsertRule(
+      rawDestination: 'https://unknown.company.local',
+      interfaceId: 'en7',
+    );
+
+    final rule = controller.rules.single;
+    expect(rule.status, RuleStatus.unresolved);
+    expect(rule.lastError, contains('LAN DNS'));
+    expect(rule.dependencyScanStatus, DependencyScanStatus.failed);
+    expect(rule.dependencyScanError, contains('Scan skipped'));
+    expect(scanner.scanCount, 0);
+    expect(
+      (await repo.load()).single.normalizedDestination,
+      'unknown.company.local',
+    );
+  });
+
+  test('DNS timeout saves unresolved and ignores a late response', () async {
+    final platform = StalledResolutionPlatform();
+    final scanner = FakeDependencyScanner([]);
+    final controller = NetPilotController(
+      platform: platform,
+      rulesRepository: MemoryRulesRepository(),
+      dependencyScanner: scanner,
+      resolutionTimeout: const Duration(milliseconds: 20),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.start();
+    await controller.upsertRule(
+      rawDestination: 'https://unknown.company.local',
+      interfaceId: 'en7',
+    );
+
+    expect(controller.rules.single.status, RuleStatus.unresolved);
+    expect(scanner.scanCount, 0);
+    platform.response.complete(const ResolveHostResult(ips: ['10.0.0.4']));
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.rules.single.resolvedIps, isEmpty);
+    expect(platform.managed, isEmpty);
+  });
+
+  for (final failScan in [false, true]) {
+    test(
+      'delete during scan cannot restore a rule (failure=$failScan)',
+      () async {
+        final scanner = DeferredDependencyScanner();
+        final platform = FakeNetworkPlatform();
+        final repo = MemoryRulesRepository();
+        final controller = NetPilotController(
+          platform: platform,
+          rulesRepository: repo,
+          dependencyScanner: scanner,
+        );
+        addTearDown(controller.dispose);
+        await controller.start();
+        final saving = controller.upsertRule(
+          rawDestination: 'https://lan.example.test',
+          interfaceId: 'en7',
+          hostIpv4: '10.0.0.1',
+        );
+        await scanner.started.future;
+        await controller.deleteRule(controller.rules.single.id);
+        scanner.complete(fail: failScan);
+        await saving;
+
+        expect(controller.rules, isEmpty);
+        expect(await repo.load(), isEmpty);
+        expect(platform.managed, isEmpty);
+        expect(platform.managedHostMappings, isEmpty);
+      },
+    );
+
+    test('disable during scan stays disabled (failure=$failScan)', () async {
+      final scanner = DeferredDependencyScanner();
+      final platform = FakeNetworkPlatform();
+      final repo = MemoryRulesRepository();
+      final controller = NetPilotController(
+        platform: platform,
+        rulesRepository: repo,
+        dependencyScanner: scanner,
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+      final saving = controller.upsertRule(
+        rawDestination: 'https://lan.example.test',
+        interfaceId: 'en7',
+        hostIpv4: '10.0.0.1',
+      );
+      await scanner.started.future;
+      await controller.setRuleEnabled(controller.rules.single.id, false);
+      scanner.complete(fail: failScan);
+      await saving;
+
+      expect(controller.rules.single.enabled, isFalse);
+      expect((await repo.load()).single.enabled, isFalse);
+      expect(platform.managed, isEmpty);
+      expect(platform.managedHostMappings, isEmpty);
+    });
+  }
+
+  test('older pending DNS edit cannot overwrite a newer save', () async {
+    final platform = StalledResolutionPlatform();
+    final scanner = FakeDependencyScanner([]);
+    final controller = NetPilotController(
+      platform: platform,
+      rulesRepository: MemoryRulesRepository(),
+      dependencyScanner: scanner,
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+    await controller.upsertRule(rawDestination: '10.0.0.1', interfaceId: 'en7');
+    final id = controller.rules.single.id;
+    final olderSave = controller.upsertRule(
+      id: id,
+      rawDestination: 'https://old.example.test',
+      interfaceId: 'en7',
+    );
+    await controller.upsertRule(
+      id: id,
+      rawDestination: '10.0.0.2',
+      interfaceId: 'en7',
+    );
+    platform.response.complete(const ResolveHostResult(ips: ['10.0.0.3']));
+    await olderSave;
+
+    expect(controller.rules.single.rawDestination, '10.0.0.2');
+    expect(platform.managed.single.destinationCidr, '10.0.0.2/32');
+    expect(scanner.scanCount, 0);
+  });
+
+  test(
+    'blank pin refreshes LAN DNS without resolving its old hosts entry',
+    () async {
+      final platform = HostsAwareResolutionPlatform();
+      final controller = NetPilotController(
+        platform: platform,
+        rulesRepository: MemoryRulesRepository(),
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+      await controller.upsertRule(
+        rawDestination: 'lan.example.test',
+        interfaceId: 'en7',
+        hostIpv4: '10.0.0.1',
+      );
+      final id = controller.rules.single.id;
+      await controller.upsertRule(
+        rawDestination: 'other.example.test',
+        interfaceId: 'en7',
+        hostIpv4: '10.0.0.5',
+      );
+      platform.resolveMap = {
+        'lan.example.test': ['10.0.0.2'],
+      };
+      await controller.upsertRule(
+        id: id,
+        rawDestination: 'lan.example.test',
+        interfaceId: 'en7',
+        manageHostname: true,
+      );
+
+      expect(controller.rules.first.hostIpv4, '10.0.0.2');
+      expect(platform.managedHostMappings.map((mapping) => mapping.ipv4), [
+        '10.0.0.2',
+        '10.0.0.5',
+      ]);
+      expect(platform.mappingsAtLookup.map((mapping) => mapping.host), [
+        'other.example.test',
+      ]);
+    },
+  );
+
+  test('failed LAN DNS refresh restores the current saved mapping', () async {
+    final platform = HostsAwareResolutionPlatform();
+    final controller = NetPilotController(
+      platform: platform,
+      rulesRepository: MemoryRulesRepository(),
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+    await controller.upsertRule(
+      rawDestination: 'lan.example.test',
+      interfaceId: 'en7',
+      hostIpv4: '10.0.0.1',
+    );
+    platform.failDns = true;
+    await expectLater(
+      controller.upsertRule(
+        id: controller.rules.single.id,
+        rawDestination: 'lan.example.test',
+        interfaceId: 'en7',
+        manageHostname: true,
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(controller.rules.single.hostIpv4, '10.0.0.1');
+    expect(platform.managedHostMappings.single.ipv4, '10.0.0.1');
+    expect(platform.managed.single.destinationCidr, '10.0.0.1/32');
+  });
+
+  test(
+    'delete during pin refresh does not restore the deleted mapping',
+    () async {
+      final platform = HostsAwareResolutionPlatform();
+      final repo = MemoryRulesRepository();
+      final controller = NetPilotController(
+        platform: platform,
+        rulesRepository: repo,
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+      await controller.upsertRule(
+        rawDestination: 'lan.example.test',
+        interfaceId: 'en7',
+        hostIpv4: '10.0.0.1',
+      );
+      final id = controller.rules.single.id;
+      platform.deferredDns = Completer<ResolveHostResult>();
+      platform.lookupStarted = Completer<void>();
+      final refreshing = controller.upsertRule(
+        id: id,
+        rawDestination: 'lan.example.test',
+        interfaceId: 'en7',
+        manageHostname: true,
+      );
+      await platform.lookupStarted!.future;
+      await controller.deleteRule(id);
+      platform.deferredDns!.complete(
+        const ResolveHostResult(ips: ['10.0.0.2']),
+      );
+      await refreshing;
+
+      expect(controller.rules, isEmpty);
+      expect(await repo.load(), isEmpty);
+      expect(platform.managedHostMappings, isEmpty);
+      expect(platform.managed, isEmpty);
+    },
+  );
+
+  test(
+    'private discovered host mappings follow child and parent toggles',
+    () async {
+      final platform = FakeNetworkPlatform(
+        resolveMap: {
+          'api.example.test': ['10.0.0.2'],
+          'public.example.test': ['203.0.113.4'],
+        },
+      );
+      final controller = NetPilotController(
+        platform: platform,
+        rulesRepository: MemoryRulesRepository(),
+        dependencyScanner: FakeDependencyScanner([
+          'api.example.test',
+          'public.example.test',
+        ]),
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+      await controller.upsertRule(
+        rawDestination: 'https://lan.example.test',
+        interfaceId: 'en7',
+        hostIpv4: '10.0.0.1',
+      );
+      final rule = controller.rules.single;
+      expect(platform.managedHostMappings.map((mapping) => mapping.host), [
+        'lan.example.test',
+        'api.example.test',
+      ]);
+      await controller.setSubRuleEnabled(
+        rule.id,
+        rule.subRules.first.id,
+        false,
+      );
+      expect(platform.managedHostMappings.single.host, 'lan.example.test');
+      await controller.setSubRuleEnabled(rule.id, rule.subRules.first.id, true);
+      expect(platform.managedHostMappings, hasLength(2));
+      await controller.setRuleEnabled(rule.id, false);
+      expect(platform.managedHostMappings, isEmpty);
+    },
+  );
 
   test('URL save discovers, resolves, and applies sub-rules', () async {
     final scanner = FakeDependencyScanner([
@@ -251,5 +547,65 @@ class FakeDependencyScanner implements DependencyScanner {
       destinations: List.of(destinations),
       finalUri: uri,
     );
+  }
+}
+
+class StalledResolutionPlatform extends FakeNetworkPlatform {
+  final response = Completer<ResolveHostResult>();
+
+  @override
+  Future<ResolveHostResult> resolveHost(String host, {String? interfaceId}) =>
+      response.future;
+}
+
+class DeferredDependencyScanner implements DependencyScanner {
+  final started = Completer<void>();
+  final response = Completer<DependencyScanResult>();
+
+  @override
+  Future<DependencyScanResult> scan(Uri uri) {
+    started.complete();
+    return response.future;
+  }
+
+  void complete({required bool fail}) {
+    if (fail) {
+      response.completeError(
+        const DependencyScanException('Scan failed'),
+        StackTrace.current,
+      );
+    } else {
+      response.complete(
+        DependencyScanResult(
+          destinations: const [],
+          finalUri: Uri.parse('https://lan.example.test'),
+        ),
+      );
+    }
+  }
+}
+
+class HostsAwareResolutionPlatform extends FakeNetworkPlatform {
+  bool failDns = false;
+  Completer<ResolveHostResult>? deferredDns;
+  Completer<void>? lookupStarted;
+  List<HostMapping> mappingsAtLookup = [];
+
+  @override
+  Future<ResolveHostResult> resolveHost(
+    String host, {
+    String? interfaceId,
+  }) async {
+    mappingsAtLookup = List.of(managedHostMappings);
+    if (deferredDns != null) {
+      lookupStarted?.complete();
+      return deferredDns!.future;
+    }
+    if (failDns) throw StateError('LAN DNS unavailable');
+    final local = managedHostMappings
+        .where((mapping) => mapping.host == host)
+        .firstOrNull;
+    if (local != null) return ResolveHostResult(ips: [local.ipv4]);
+    return super.resolveHost(host, interfaceId: interfaceId);
   }
 }

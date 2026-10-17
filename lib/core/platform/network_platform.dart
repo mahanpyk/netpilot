@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../models/network_interface_info.dart';
@@ -139,7 +140,39 @@ class ResolveHostResult {
   }
 }
 
+class HostMapping {
+  const HostMapping({required this.host, required this.ipv4});
+
+  final String host;
+  final String ipv4;
+
+  Map<String, Object?> toMap() => {'host': host, 'ipv4': ipv4};
+}
+
+class HostMappingsResult {
+  const HostMappingsResult({
+    required this.ok,
+    this.changed = false,
+    this.errors = const [],
+  });
+
+  final bool ok;
+  final bool changed;
+  final List<String> errors;
+
+  factory HostMappingsResult.fromMap(Map<Object?, Object?> map) =>
+      HostMappingsResult(
+        ok: map['ok'] as bool? ?? false,
+        changed: map['changed'] as bool? ?? false,
+        errors: (map['errors'] as List<dynamic>? ?? const [])
+            .map((value) => value.toString())
+            .toList(),
+      );
+}
+
 abstract class NetworkPlatform {
+  bool get supportsHostMappings;
+  Future<HostMappingsResult> reconcileHostMappings(List<HostMapping> desired);
   Future<List<NetworkInterfaceInfo>> listInterfaces();
   Future<ResolveHostResult> resolveHost(String host, {String? interfaceId});
   Future<HelperStatus> getHelperStatus();
@@ -161,6 +194,40 @@ class MethodChannelNetworkPlatform implements NetworkPlatform {
 
   final MethodChannel _method;
   final EventChannel _events;
+
+  @override
+  bool get supportsHostMappings =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
+
+  @override
+  Future<HostMappingsResult> reconcileHostMappings(
+    List<HostMapping> desired,
+  ) async {
+    if (!supportsHostMappings) {
+      return HostMappingsResult(
+        ok: desired.isEmpty,
+        errors: desired.isEmpty
+            ? const []
+            : const ['Hostname mappings currently require macOS.'],
+      );
+    }
+    try {
+      final raw = await _method.invokeMethod<Map<Object?, Object?>>(
+        'reconcileHostMappings',
+        {'desired': desired.map((mapping) => mapping.toMap()).toList()},
+      );
+      return raw == null
+          ? const HostMappingsResult(ok: false, errors: ['No helper response.'])
+          : HostMappingsResult.fromMap(raw);
+    } on MissingPluginException {
+      return const HostMappingsResult(
+        ok: false,
+        errors: [
+          'Update NetPilot and use Repair Helper to enable hostname mappings.',
+        ],
+      );
+    }
+  }
 
   @override
   Future<List<NetworkInterfaceInfo>> listInterfaces() async {
@@ -283,6 +350,21 @@ class FakeNetworkPlatform implements NetworkPlatform {
   Map<String, List<String>> resolveMap;
   HelperStatus helperStatus;
   final List<DesiredRoute> managed = [];
+  final List<HostMapping> managedHostMappings = [];
+
+  @override
+  bool get supportsHostMappings => true;
+
+  @override
+  Future<HostMappingsResult> reconcileHostMappings(
+    List<HostMapping> desired,
+  ) async {
+    managedHostMappings
+      ..clear()
+      ..addAll(desired);
+    return const HostMappingsResult(ok: true);
+  }
+
   final _interfacesChanged = StreamController<void>.broadcast();
 
   void notifyInterfacesChanged() => _interfacesChanged.add(null);

@@ -138,6 +138,55 @@ final class HelperXPCClient {
     return result
   }
 
+  func reconcileHostMappings(desired: [[String: Any]]) -> [String: Any] {
+    // Legacy rule sets need no new helper method unless a managed block needs
+    // cleanup. Do not send an unknown selector to an older installed helper.
+    if desired.isEmpty,
+       let hosts = try? String(contentsOfFile: "/etc/hosts", encoding: .utf8),
+       !hosts.contains("NETPILOT MANAGED HOSTS") {
+      return ["ok": true, "changed": false, "errors": [String]()]
+    }
+    let semaphore = DispatchSemaphore(value: 0)
+    let lock = NSLock()
+    var completed = false
+    var result: [String: Any] = [:]
+    func finish(_ value: [String: Any]) {
+      lock.lock()
+      defer { lock.unlock() }
+      guard !completed else { return }
+      completed = true
+      result = value
+      semaphore.signal()
+    }
+    func errorResult(_ message: String) -> [String: Any] {
+      ["ok": false, "changed": false, "errors": [
+        message + " Repair NetPilot Helper in Settings to enable hostname mappings.",
+      ]]
+    }
+    let connection = NSXPCConnection(
+      machServiceName: NetPilotXPCConstants.machServiceName, options: [.privileged]
+    )
+    connection.remoteObjectInterface = NSXPCInterface(with: NetPilotXPCProtocol.self)
+    connection.interruptionHandler = { finish(errorResult("Helper connection interrupted.")) }
+    connection.invalidationHandler = { finish(errorResult("Helper connection unavailable or out of date.")) }
+    connection.resume()
+    defer { connection.invalidate() }
+    guard let proxy = connection.remoteObjectProxyWithErrorHandler({ error in
+      finish(errorResult("Helper XPC error: \(error.localizedDescription)."))
+    }) as? NetPilotXPCProtocol else { return errorResult("Helper XPC proxy unavailable.") }
+    proxy.reconcileHostMappingsDesired(desired as NSArray, deadline: Date().timeIntervalSince1970 + 5) { reply in
+      var map: [String: Any] = [:]
+      reply.forEach { key, value in if let key = key as? String { map[key] = value } }
+      finish(map)
+    }
+    if semaphore.wait(timeout: .now() + 8) == .timedOut {
+      finish(errorResult("Timed out waiting for helper; mapping state could not be confirmed."))
+    }
+    lock.lock()
+    defer { lock.unlock() }
+    return result
+  }
+
   private func ping() -> (ok: Bool, message: String?) {
     let semaphore = DispatchSemaphore(value: 0)
     let lock = NSLock()

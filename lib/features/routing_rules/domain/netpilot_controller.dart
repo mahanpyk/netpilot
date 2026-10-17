@@ -18,6 +18,7 @@ class NetPilotController extends ChangeNotifier {
     DestinationParser? parser,
     RouteReconciler? reconciler,
     DependencyScanner? dependencyScanner,
+    this._resolutionTimeout = const Duration(seconds: 10),
     Uuid? uuid,
   }) : _parser = parser ?? const DestinationParser(),
        _reconciler = reconciler ?? const RouteReconciler(),
@@ -30,6 +31,8 @@ class NetPilotController extends ChangeNotifier {
   final RouteReconciler _reconciler;
   final DependencyScanner _dependencyScanner;
   final Uuid _uuid;
+  final Duration _resolutionTimeout;
+  final Map<String, Object> _ruleSaveOperations = {};
 
   List<NetworkInterfaceInfo> _interfaces = [];
   List<RoutingRule> _rules = [];
@@ -49,6 +52,7 @@ class NetPilotController extends ChangeNotifier {
   HelperStatus get helperStatus => _helperStatus;
   bool get loading => _loading;
   bool get busy => _busy;
+  bool get supportsHostMappings => _platform.supportsHostMappings;
   String? get bannerError => _bannerError;
   List<String> get routeDiagnostics => List.unmodifiable(_routeDiagnostics);
 
@@ -77,6 +81,7 @@ class NetPilotController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _ruleSaveOperations.clear();
     _networkSub?.cancel();
     super.dispose();
   }
@@ -119,7 +124,7 @@ class NetPilotController extends ChangeNotifier {
     String host, {
     String? interfaceId,
   }) async {
-    final result = await _platform.resolveHost(host, interfaceId: interfaceId);
+    final result = await _resolveHost(host, interfaceId: interfaceId);
     return result.ips;
   }
 
@@ -129,25 +134,86 @@ class NetPilotController extends ChangeNotifier {
     required String interfaceId,
     String? label,
     bool enabled = true,
+    String? hostIpv4,
+    bool manageHostname = false,
   }) async {
     final parsed = _parser.parse(rawDestination);
+    final isHostname =
+        (parsed.kind == DestinationKind.hostname ||
+            parsed.kind == DestinationKind.url) &&
+        !_parser.isIpv4(parsed.normalized);
+    var pinnedIp = hostIpv4?.trim();
+    if (pinnedIp?.isEmpty == true) pinnedIp = null;
+    if (pinnedIp != null) {
+      if (!supportsHostMappings || !isHostname || !_parser.isIpv4(pinnedIp)) {
+        throw DestinationParseException(
+          'Enter a valid LAN IPv4 for a hostname or URL on macOS.',
+        );
+      }
+      pinnedIp = pinnedIp.split('.').map(int.parse).join('.');
+    }
+    final ruleId = id ?? _uuid.v4();
+    final operation = Object();
+    _ruleSaveOperations[ruleId] = operation;
+    final initialRule = _rules.where((rule) => rule.id == ruleId).firstOrNull;
+    bool isCurrentSave() => identical(_ruleSaveOperations[ruleId], operation);
+    RoutingRule? currentRule() => isCurrentSave()
+        ? _rules.where((rule) => rule.id == ruleId).firstOrNull
+        : null;
+
     List<String> ips = [];
     var status = RuleStatus.pending;
     String? error;
 
-    if (parsed.kind == DestinationKind.hostname ||
+    if (pinnedIp != null) {
+      ips = [pinnedIp];
+    } else if (parsed.kind == DestinationKind.hostname ||
         parsed.kind == DestinationKind.url) {
-      final resolved = await _platform.resolveHost(
-        parsed.normalized,
-        interfaceId: interfaceId,
-      );
-      ips = resolved.ips;
+      final refreshPinnedMapping =
+          manageHostname &&
+          supportsHostMappings &&
+          initialRule?.hostIpv4 != null;
+      try {
+        if (refreshPinnedMapping) {
+          // Do not resolve our own old hosts override when the editor requests
+          // a fresh LAN DNS answer. Preserve every other live rule's mappings.
+          await _reconcileManagedHostMappings(excludingRuleId: ruleId);
+          if (!isCurrentSave()) return;
+        }
+        final resolved = await _resolveHost(
+          parsed.normalized,
+          interfaceId: interfaceId,
+        );
+        ips = resolved.ips;
+      } finally {
+        if (refreshPinnedMapping) {
+          // Use current state, including deletions/toggles/newer saves that may
+          // have happened during DNS. The normal apply publishes the new pin.
+          await _reconcileManagedHostMappings();
+        }
+      }
       if (ips.isEmpty) {
         status = RuleStatus.unresolved;
-        error = 'Could not resolve ${parsed.normalized} via selected LAN DNS';
+        error = _resolutionError(parsed.normalized);
       }
     } else if (parsed.kind == DestinationKind.ipv4) {
       ips = [parsed.normalized];
+    }
+
+    // A newer edit or deletion may finish while this save waits for DNS.
+    if (!isCurrentSave() || (initialRule != null && currentRule() == null)) {
+      return;
+    }
+
+    // Snapshot a single private LAN answer for system/browser resolution.
+    // Public DNS answers remain dynamic unless an explicit override was entered.
+    if (pinnedIp == null &&
+        manageHostname &&
+        supportsHostMappings &&
+        isHostname &&
+        ips.length == 1 &&
+        _isPrivateIpv4(ips.single)) {
+      pinnedIp = ips.single;
     }
 
     final existingIndex = id == null
@@ -156,51 +222,72 @@ class NetPilotController extends ChangeNotifier {
     final existingRule = existingIndex < 0 ? null : _rules[existingIndex];
     final scansDependencies = parsed.kind == DestinationKind.url;
     final rule = RoutingRule(
-      id: id ?? _uuid.v4(),
+      id: ruleId,
       label: label,
       rawDestination: rawDestination.trim(),
       kind: parsed.kind,
       normalizedDestination: parsed.normalized,
       interfaceId: interfaceId,
-      enabled: enabled,
+      enabled:
+          initialRule != null && currentRule()?.enabled != initialRule.enabled
+          ? currentRule()!.enabled
+          : enabled,
       resolvedIps: ips,
       status: status,
       lastError: error,
+      hostIpv4: pinnedIp,
       updatedAt: DateTime.now(),
       subRules: const [],
-      dependencyScanStatus: scansDependencies
-          ? DependencyScanStatus.pending
-          : DependencyScanStatus.notApplicable,
+      dependencyScanStatus: !scansDependencies
+          ? DependencyScanStatus.notApplicable
+          : ips.isEmpty
+          ? DependencyScanStatus.failed
+          : DependencyScanStatus.pending,
+      dependencyScanError: scansDependencies && ips.isEmpty
+          ? 'Scan skipped: ${_resolutionError(parsed.normalized)} Save again after fixing name resolution.'
+          : null,
     );
 
     await _replaceRule(rule, existingIndex: existingIndex);
+    if (currentRule() == null) return;
     // Apply the parent first so the page and same-origin scripts are fetched
     // over the interface selected for this rule.
     await applyAll();
 
-    if (!scansDependencies) return;
+    // A scan cannot reach an unresolved parent, and retrying system HTTP DNS
+    // here used to add another long wait after the native lookup failed.
+    if (!scansDependencies || ips.isEmpty) return;
+    final appliedParent = currentRule();
+    if (appliedParent == null) return;
+    if (appliedParent.status != RuleStatus.applied) {
+      await _replaceRule(
+        appliedParent.copyWith(
+          dependencyScanStatus: DependencyScanStatus.failed,
+          dependencyScanError:
+              'Scan skipped: ${appliedParent.lastError ?? 'parent route was not applied'}.',
+        ),
+      );
+      return;
+    }
 
     try {
       final result = await _dependencyScanner.scan(
         Uri.parse(rule.rawDestination),
       );
+      if (currentRule() == null) return;
       final previousByDestination = {
         for (final subRule
             in existingRule?.subRules ?? const <RoutingSubRule>[])
           subRule.destination: subRule,
       };
-      final subRules = <RoutingSubRule>[];
-      for (final destination in result.destinations) {
-        final previous = previousByDestination[destination];
-        subRules.add(
-          await _resolveSubRule(
-            destination,
-            interfaceId: interfaceId,
-            existing: previous,
-          ),
-        );
-      }
-      final scannedRule = rule.copyWith(
+      final subRules = await _resolveDependencies(
+        result.destinations,
+        interfaceId: interfaceId,
+        previousByDestination: previousByDestination,
+      );
+      final liveRule = currentRule();
+      if (liveRule == null) return;
+      final scannedRule = liveRule.copyWith(
         subRules: subRules,
         dependencyScanStatus: DependencyScanStatus.succeeded,
         clearDependencyScanError: true,
@@ -211,8 +298,11 @@ class NetPilotController extends ChangeNotifier {
         'finalUrl=${result.finalUri} dependencies=${result.destinations}',
       );
       await _replaceRule(scannedRule);
+      if (currentRule() == null) return;
       await applyAll();
     } catch (error, stackTrace) {
+      final liveRule = currentRule();
+      if (liveRule == null) return;
       final message = error is DependencyScanException
           ? error.message
           : error.toString();
@@ -220,13 +310,14 @@ class NetPilotController extends ChangeNotifier {
         '[NetPilot] Dependency scan failed: url=${rule.rawDestination} error=$message',
       );
       debugPrintStack(stackTrace: stackTrace);
-      final failedRule = rule.copyWith(
+      final failedRule = liveRule.copyWith(
         subRules: const [],
         dependencyScanStatus: DependencyScanStatus.failed,
         dependencyScanError: message,
         updatedAt: DateTime.now(),
       );
       await _replaceRule(failedRule);
+      if (currentRule() == null) return;
       await applyAll();
     }
   }
@@ -269,6 +360,7 @@ class NetPilotController extends ChangeNotifier {
   }
 
   Future<void> deleteRule(String id) async {
+    _ruleSaveOperations.remove(id);
     _rules = _rules.where((r) => r.id != id).toList();
     await _rulesRepository.save(_rules);
     notifyListeners();
@@ -279,9 +371,16 @@ class NetPilotController extends ChangeNotifier {
     final next = <RoutingRule>[];
     for (final rule in _rules) {
       RoutingRule refreshedRule;
-      if (rule.kind == DestinationKind.hostname ||
+      if (rule.hostIpv4 != null) {
+        refreshedRule = rule.copyWith(
+          resolvedIps: [rule.hostIpv4!],
+          status: RuleStatus.pending,
+          clearLastError: true,
+          updatedAt: DateTime.now(),
+        );
+      } else if (rule.kind == DestinationKind.hostname ||
           rule.kind == DestinationKind.url) {
-        final resolved = await _platform.resolveHost(
+        final resolved = await _resolveHost(
           rule.normalizedDestination,
           interfaceId: rule.interfaceId,
         );
@@ -291,7 +390,7 @@ class NetPilotController extends ChangeNotifier {
               ? RuleStatus.unresolved
               : RuleStatus.pending,
           lastError: resolved.ips.isEmpty
-              ? 'Could not resolve ${rule.normalizedDestination}'
+              ? _resolutionError(rule.normalizedDestination)
               : null,
           clearLastError: resolved.ips.isNotEmpty,
           updatedAt: DateTime.now(),
@@ -318,6 +417,8 @@ class NetPilotController extends ChangeNotifier {
     notifyListeners();
     try {
       await refreshHelperStatus();
+      final hostMappings = _desiredHostMappings();
+      await _reconcileManagedHostMappings();
       String gatewayFor(RoutingRule rule) {
         final iface = _interfaces.cast<NetworkInterfaceInfo?>().firstWhere(
           (i) =>
@@ -403,6 +504,8 @@ class NetPilotController extends ChangeNotifier {
       }
 
       _routeDiagnostics = [
+        if (hostMappings.isNotEmpty)
+          'Hostname mappings: ${hostMappings.entries.map((entry) => '${entry.key} → ${entry.value}').join(', ')}',
         'Desired routes: ${desired.length} · added: ${result.added} · removed: ${result.removed}',
         for (final check in result.routeChecks)
           '${check.verified ? '✓' : '✗'} ${check.destination} → '
@@ -572,6 +675,69 @@ class NetPilotController extends ChangeNotifier {
     }
   }
 
+  Map<String, String> _desiredHostMappings({String? excludingRuleId}) {
+    final mappings = <String, String>{};
+    void add(String host, String ipv4) {
+      final previous = mappings[host];
+      if (previous != null && previous != ipv4) {
+        throw StateError('Conflicting LAN IPv4 mappings for $host.');
+      }
+      mappings[host] = ipv4;
+    }
+
+    for (final rule in _rules) {
+      if (!rule.enabled ||
+          rule.id == excludingRuleId ||
+          rule.hostIpv4 == null) {
+        continue;
+      }
+      add(rule.normalizedDestination, rule.hostIpv4!);
+      for (final child in rule.subRules) {
+        if (child.enabled &&
+            child.kind == DestinationKind.hostname &&
+            child.resolvedIps.length == 1 &&
+            _isPrivateIpv4(child.resolvedIps.single)) {
+          add(child.destination, child.resolvedIps.single);
+        }
+      }
+    }
+    return mappings;
+  }
+
+  Future<void> _reconcileManagedHostMappings({String? excludingRuleId}) async {
+    final desired = _desiredHostMappings(excludingRuleId: excludingRuleId);
+    if (!supportsHostMappings) {
+      if (desired.isNotEmpty) {
+        throw StateError('Hostname mappings currently require macOS.');
+      }
+      return;
+    }
+    if (!_helperStatus.enabled && desired.isNotEmpty) {
+      throw StateError(
+        'Install/repair and approve the NetPilot helper to apply hostname mappings.',
+      );
+    }
+    final result = await _platform.reconcileHostMappings([
+      for (final entry in desired.entries)
+        HostMapping(host: entry.key, ipv4: entry.value),
+    ]);
+    if (!result.ok) {
+      throw StateError(
+        result.errors.isEmpty
+            ? 'Could not apply hostname mappings. Use Repair Helper.'
+            : result.errors.join('; '),
+      );
+    }
+  }
+
+  bool _isPrivateIpv4(String ip) {
+    if (!_parser.isIpv4(ip)) return false;
+    final parts = ip.split('.').map(int.parse).toList();
+    return parts[0] == 10 ||
+        (parts[0] == 172 && parts[1] >= 16 && parts[1] <= 31) ||
+        (parts[0] == 192 && parts[1] == 168);
+  }
+
   Future<void> _replaceRule(RoutingRule rule, {int? existingIndex}) async {
     final index =
         existingIndex ?? _rules.indexWhere((item) => item.id == rule.id);
@@ -582,6 +748,61 @@ class NetPilotController extends ChangeNotifier {
     }
     await _rulesRepository.save(_rules);
     notifyListeners();
+  }
+
+  String _resolutionError(String host) =>
+      'Could not resolve $host. Check LAN DNS or add a hostname-to-IPv4 mapping.';
+
+  Future<ResolveHostResult> _resolveHost(String host, {String? interfaceId}) =>
+      _platform
+          .resolveHost(host, interfaceId: interfaceId)
+          .timeout(
+            _resolutionTimeout,
+            onTimeout: () {
+              debugPrint('[NetPilot] DNS resolution timed out: host=$host');
+              return const ResolveHostResult(ips: []);
+            },
+          );
+
+  Future<List<RoutingSubRule>> _resolveDependencies(
+    List<String> destinations, {
+    required String interfaceId,
+    required Map<String, RoutingSubRule> previousByDestination,
+  }) async {
+    var expired = false;
+    Future<List<RoutingSubRule>> resolve() async {
+      final result = <RoutingSubRule>[];
+      // Resolve a few hosts together rather than accumulating a full DNS wait
+      // for every dependency; do not flood the native resolver with all hosts.
+      for (var offset = 0; offset < destinations.length; offset += 4) {
+        if (expired) break;
+        result.addAll(
+          await Future.wait(
+            destinations
+                .skip(offset)
+                .take(4)
+                .map(
+                  (destination) => _resolveSubRule(
+                    destination,
+                    interfaceId: interfaceId,
+                    existing: previousByDestination[destination],
+                  ),
+                ),
+          ),
+        );
+      }
+      return result;
+    }
+
+    return resolve().timeout(
+      const Duration(seconds: 30),
+      onTimeout: () {
+        expired = true;
+        throw const DependencyScanException(
+          'Dependency DNS resolution timed out. The parent rule was saved.',
+        );
+      },
+    );
   }
 
   Future<RoutingSubRule> _resolveSubRule(
@@ -600,7 +821,7 @@ class NetPilotController extends ChangeNotifier {
         status: RuleStatus.pending,
       );
     }
-    final resolved = await _platform.resolveHost(
+    final resolved = await _resolveHost(
       parsed.normalized,
       interfaceId: interfaceId,
     );
@@ -612,7 +833,7 @@ class NetPilotController extends ChangeNotifier {
       resolvedIps: resolved.ips,
       status: resolved.ips.isEmpty ? RuleStatus.unresolved : RuleStatus.pending,
       lastError: resolved.ips.isEmpty
-          ? 'Could not resolve ${parsed.normalized}'
+          ? _resolutionError(parsed.normalized)
           : null,
     );
   }
@@ -628,7 +849,7 @@ class NetPilotController extends ChangeNotifier {
         clearLastError: true,
       );
     }
-    final resolved = await _platform.resolveHost(
+    final resolved = await _resolveHost(
       subRule.destination,
       interfaceId: interfaceId,
     );
@@ -636,7 +857,7 @@ class NetPilotController extends ChangeNotifier {
       resolvedIps: resolved.ips,
       status: resolved.ips.isEmpty ? RuleStatus.unresolved : RuleStatus.pending,
       lastError: resolved.ips.isEmpty
-          ? 'Could not resolve ${subRule.destination}'
+          ? _resolutionError(subRule.destination)
           : null,
       clearLastError: resolved.ips.isNotEmpty,
     );

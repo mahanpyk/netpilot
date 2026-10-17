@@ -58,6 +58,7 @@ xcrun swiftc \
   -o "$EXTRA_HELPER" \
   "$SHARED/NetPilotXPCProtocol.swift" \
   "$SHARED/RouteSpec.swift" \
+  "$SHARED/ManagedHosts.swift" \
   "$SHARED/RouteManager.swift" \
   "$HELPER_SRC/HelperDelegate.swift" \
   "$HELPER_SRC/main.swift"
