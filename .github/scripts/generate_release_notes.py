@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 from collections import defaultdict
+from pathlib import Path
 
 TAG_PATTERN = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$")
 REPO_PATTERN = re.compile(r"^[0-9A-Za-z_.-]+/[0-9A-Za-z_.-]+$")
@@ -57,6 +58,18 @@ def previous_tag(tag: str) -> str | None:
     return candidates[index + 1] if index + 1 < len(candidates) else None
 
 
+def curated_changelog(tag: str, path: Path = Path("CHANGELOG.md")) -> str | None:
+    if not path.is_file():
+        return None
+    content = path.read_text(encoding="utf-8")
+    heading = re.search(rf"^## \[{re.escape(tag)}\][^\n]*$", content, re.M)
+    if heading is None:
+        return None
+    following = re.search(r"^## \[", content[heading.end():], re.M)
+    end = heading.end() + following.start() if following else len(content)
+    return content[heading.end():end].strip() or None
+
+
 def release_notes(tag: str, repository: str) -> str:
     if not TAG_PATTERN.fullmatch(tag):
         raise ValueError(f"Invalid release tag: {tag}")
@@ -86,8 +99,12 @@ def release_notes(tag: str, repository: str) -> str:
         commit_url = f"https://github.com/{repository}/commit/{sha}"
         groups[kind].append(f"- {escape_markdown(title)} ([{sha[:7]}]({commit_url}))")
 
-    heading = f"## Changes since {prior}" if prior else "## Changes in this release"
-    lines = [f"NetPilot {tag} test build.", "", heading, ""]
+    lines = [f"NetPilot {tag} test build.", ""]
+    curated = curated_changelog(tag)
+    if curated:
+        lines.extend(("## Release changelog", "", curated, ""))
+    heading = f"## Commits since {prior}" if prior else "## Commits in this release"
+    lines.extend((heading, ""))
     emitted = set()
     for kind, label in CATEGORIES:
         if kind in ("build", "ci", "chore"):

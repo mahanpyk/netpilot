@@ -188,13 +188,14 @@ explicit Windows parity request superseded that scope note for this branch.
   import and test signature passed before upload. The temporary local P12 and
   password were deleted. The workflow successfully published
   `v1.0.1-test.3`. Its publish job checks out full tag history and runs
-  `.github/scripts/generate_release_notes.py` to group commits since the
-  preceding reachable version tag into release notes; a rerun also updates
+  `.github/scripts/generate_release_notes.py` to include the matching curated
+  `CHANGELOG.md` version section and group commits since the preceding reachable
+  version tag into release notes; a rerun also updates
   the existing prerelease body. The Windows driver remains ephemeral
   test-signed, with its matching public certificate included in each prerelease.
   Root `CHANGELOG.md` is the curated per-version summary, including release
   availability. Keep its Unreleased section current for user-visible changes;
-  GitHub release notes remain generated from commits at tag time.
+  GitHub release notes use that section at tag time, followed by commit links.
 
 ## Product goal
 
@@ -829,6 +830,10 @@ CI build must not be reported as successful split-tunneling integration.
 | IPv6 | Not started |
 
 ## Changelog
+
+- **2026-11-05 — Curated test-release notes.** Tagged prerelease notes now
+  include the matching `CHANGELOG.md` version section before commit links, so
+  the published summary describes user-visible changes and package scope.
 
 - **2026-11-05 — macOS menu bar icon startup fix.** Reproduced a missing
   status item in a launched-app test and found an invalid `super` call to an
