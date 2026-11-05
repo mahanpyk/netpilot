@@ -39,6 +39,12 @@ identified separately from features available in downloadable packages.
 - Windows packages remain test-signed and require Test Mode. Windows live
   installation and routing acceptance are still pending.
 
+### Release status
+
+- Published macOS and Windows test packages after both CI build gates passed
+  in run `42038065720`. The Release includes SHA-256 checksums and detailed
+  notes from this version's changelog. Live Windows acceptance remains pending.
+
 ## [v1.0.1-test.4] - 2026-10-17
 
 ### Added

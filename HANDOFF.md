@@ -12,9 +12,9 @@ explicit Windows parity request superseded that scope note for this branch.
 
 - **Stable-release decision:** The owner chose to defer a stable GitHub Release
   until Windows has passed live testing. Do not create a stable tag from the
-  current source. The latest published release is `v1.0.1-test.4`; the next
-  test candidate is `v1.0.1-test.5` (app `1.0.1+4`) with macOS menu bar and
-  routing-mode work. The current
+  current source. The latest published prerelease is `v1.0.1-test.5`
+  (app `1.0.1+4`), built by successful CI run `42038065720` from tag commit
+  `ec6d127`. It includes macOS menu bar and routing-mode work. The current
   tag workflow always publishes a prerelease, and Windows CI embeds an
   ephemeral test-signed WFP driver. Before a stable tag: complete
   `windows/IntegrationTests/WFP_GATE.md` on Windows 11 and Windows 10, cover
@@ -830,6 +830,12 @@ CI build must not be reported as successful split-tunneling integration.
 | IPv6 | Not started |
 
 ## Changelog
+
+- **2026-11-05 — Published test release v1.0.1-test.5.** CI run
+  `42038065720` passed macOS and Windows build gates and published the
+  Rules-only macOS DMG, Windows Setup/MSI/portable ZIP, driver test
+  certificate, SHA-256 checksums, and the curated per-version release notes.
+  Windows live installation and routing acceptance remain pending.
 
 - **2026-11-05 — Curated test-release notes.** Tagged prerelease notes now
   include the matching `CHANGELOG.md` version section before commit links, so
