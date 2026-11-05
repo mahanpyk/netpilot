@@ -7,7 +7,37 @@ identified separately from features available in downloadable packages.
 
 ## [Unreleased]
 
-No changes yet.
+## [v1.0.1-test.5] - 2026-11-05
+
+### Added
+
+- On macOS, keep NetPilot available from a menu bar icon after its window is
+  closed. Reopen the window or quit the app from the icon.
+- Add a saved System Default / Custom Routing mode to suspend or restore all
+  custom destination rules without changing each rule's enabled setting.
+- Add a macOS Launch at login setting backed by the system login-item service.
+
+### Fixed
+
+- The macOS menu bar icon now appears on launch. Removed an invalid Flutter
+  delegate call that interrupted startup, and use the bundled NetPilot icon.
+- System Default now skips an unavailable unsigned app proxy and warns clearly
+  if the privileged helper cannot remove managed routes.
+- Route and hostname cleanup run independently, so a failure in one does not
+  prevent the other from being removed.
+- Returning to Custom no longer applies pending app-rule edits without
+  **Apply & Restart Proxy**.
+- Helper Repair waits for the old daemon to stop and retries a transient
+  registration failure; Quit waits for an in-progress routing change.
+- Routing mode preferences survive an interrupted write and recover from
+  malformed JSON.
+
+### Release scope
+
+- The macOS DMG contains destination routing and menu bar controls but does
+  not include App Routing. It is Apple Development signed and unnotarized.
+- Windows packages remain test-signed and require Test Mode. Windows live
+  installation and routing acceptance are still pending.
 
 ## [v1.0.1-test.4] - 2026-10-17
 
@@ -96,7 +126,8 @@ No changes yet.
   lacked Flutter-generated build configuration files. The fix is in
   `v1.0.1-test.2`.
 
-[Unreleased]: https://github.com/mahanpyk/netpilot/compare/v1.0.1-test.4...develop
+[Unreleased]: https://github.com/mahanpyk/netpilot/compare/v1.0.1-test.5...develop
+[v1.0.1-test.5]: https://github.com/mahanpyk/netpilot/compare/v1.0.1-test.4...v1.0.1-test.5
 [v1.0.1-test.4]: https://github.com/mahanpyk/netpilot/compare/v1.0.1-test.3...v1.0.1-test.4
 [v1.0.1-test.3]: https://github.com/mahanpyk/netpilot/compare/v1.0.1-test.2...v1.0.1-test.3
 [v1.0.1-test.2]: https://github.com/mahanpyk/netpilot/compare/v1.0.1-test.1...v1.0.1-test.2

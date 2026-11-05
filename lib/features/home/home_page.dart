@@ -12,6 +12,7 @@ import '../network_interfaces/presentation/interface_card.dart';
 import '../app_routing/domain/app_routing_controller.dart';
 import '../app_routing/presentation/apps_view.dart';
 import '../routing_rules/domain/netpilot_controller.dart';
+import '../routing_rules/domain/routing_mode.dart';
 import '../routing_rules/presentation/rule_editor_sheet.dart';
 import '../routing_rules/presentation/rule_tile.dart';
 
@@ -24,12 +25,14 @@ class HomePage extends StatefulWidget {
     required this.appRoutingController,
     required this.themeMode,
     required this.onThemeChanged,
+    required this.onRoutingModeChanged,
   });
 
   final NetPilotController controller;
   final AppRoutingController appRoutingController;
   final ThemeMode themeMode;
   final ValueChanged<bool> onThemeChanged;
+  final Future<void> Function(RoutingMode mode) onRoutingModeChanged;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -111,6 +114,14 @@ class _HomePageState extends State<HomePage> {
                           isDark: widget.themeMode == ThemeMode.dark,
                           onTheme: widget.onThemeChanged,
                           onInstall: c.installHelper,
+                          routingMode: c.routingMode,
+                          routingModeError:
+                              c.routingMode == RoutingMode.systemDefault
+                              ? c.bannerError
+                              : null,
+                          onRoutingModeChanged: widget.onRoutingModeChanged,
+                          launchAtLoginStatus: c.launchAtLoginStatus,
+                          onLaunchAtLoginChanged: c.setLaunchAtLogin,
                         ),
                       },
               ),
@@ -360,6 +371,11 @@ class _SettingsView extends StatelessWidget {
     required this.isDark,
     required this.onTheme,
     required this.onInstall,
+    required this.routingMode,
+    required this.routingModeError,
+    required this.onRoutingModeChanged,
+    required this.launchAtLoginStatus,
+    required this.onLaunchAtLoginChanged,
   });
 
   final HelperStatus helperStatus;
@@ -368,6 +384,11 @@ class _SettingsView extends StatelessWidget {
   final bool isDark;
   final ValueChanged<bool> onTheme;
   final VoidCallback onInstall;
+  final RoutingMode routingMode;
+  final String? routingModeError;
+  final Future<void> Function(RoutingMode mode) onRoutingModeChanged;
+  final LaunchAtLoginStatus launchAtLoginStatus;
+  final Future<void> Function(bool enabled) onLaunchAtLoginChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -392,6 +413,41 @@ class _SettingsView extends StatelessWidget {
                     : 'Appearance and privileged routing helper status.',
               ),
               const SizedBox(height: 20),
+              SwitchListTile.adaptive(
+                key: const ValueKey('custom-routing-switch'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Custom routing'),
+                subtitle: Text(
+                  routingMode == RoutingMode.custom
+                      ? 'NetPilot rules are active. Switch off to use system defaults.'
+                      : routingModeError != null
+                      ? 'System Default requested, but custom routes could not be removed. See the error above.'
+                      : 'System Default is active. NetPilot rules are paused.',
+                ),
+                value: routingMode == RoutingMode.custom,
+                onChanged: busy
+                    ? null
+                    : (enabled) => onRoutingModeChanged(
+                        enabled
+                            ? RoutingMode.custom
+                            : RoutingMode.systemDefault,
+                      ),
+              ),
+              if (defaultTargetPlatform == TargetPlatform.macOS)
+                SwitchListTile.adaptive(
+                  key: const ValueKey('launch-at-login-switch'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Launch at login'),
+                  subtitle: Text(
+                    launchAtLoginStatus.message ??
+                        (launchAtLoginStatus.status == 'requiresApproval'
+                            ? 'Approve NetPilot in System Settings > General > Login Items.'
+                            : 'Open NetPilot automatically when you sign in.'),
+                  ),
+                  value: launchAtLoginStatus.enabled,
+                  onChanged: onLaunchAtLoginChanged,
+                ),
+              const Divider(height: 32),
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Dark theme'),

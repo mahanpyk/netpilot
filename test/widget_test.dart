@@ -48,6 +48,110 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('WFP Driver'), findsOneWidget);
     expect(find.text('Windows Service'), findsOneWidget);
+    expect(find.text('Launch at login'), findsNothing);
+  });
+
+  testWidgets('macOS launch at login switch changes the native setting', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    tester.view.physicalSize = const Size(1180, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final platform = FakeNetworkPlatform();
+    final controller = NetPilotController(
+      platform: platform,
+      rulesRepository: MemoryRulesRepository(),
+    );
+    final appController = AppRoutingController(
+      platform: FakeAppRoutingPlatform(),
+      repository: MemoryAppRulesRepository(),
+      interfacesProvider: () => controller.interfaces,
+    );
+    await tester.pumpWidget(
+      NetPilotApp(controller: controller, appRoutingController: appController),
+    );
+    await controller.start();
+    await appController.start();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('Launch at login'), findsOneWidget);
+    expect(platform.launchAtLoginEnabled, isFalse);
+
+    await tester.tap(find.byKey(const ValueKey('launch-at-login-switch')));
+    await tester.pumpAndSettle();
+    expect(platform.launchAtLoginEnabled, isTrue);
+    expect(controller.launchAtLoginStatus.enabled, isTrue);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('Settings switches between custom routing and system defaults', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1180, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final controller = NetPilotController(
+      platform: FakeNetworkPlatform(),
+      rulesRepository: MemoryRulesRepository(),
+    );
+    final appController = AppRoutingController(
+      platform: FakeAppRoutingPlatform(),
+      repository: MemoryAppRulesRepository(),
+      interfacesProvider: () => controller.interfaces,
+    );
+    await tester.pumpWidget(
+      NetPilotApp(controller: controller, appRoutingController: appController),
+    );
+    await controller.start();
+    await appController.start();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Custom routing'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('custom-routing-switch')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('System Default is active'), findsOneWidget);
+    expect(appController.globalRoutingEnabled, isFalse);
+  });
+
+  testWidgets('Settings warns when system routes could not be removed', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1180, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final platform = _FailingRoutePlatform();
+    final controller = NetPilotController(
+      platform: platform,
+      rulesRepository: MemoryRulesRepository(),
+    );
+    final appController = AppRoutingController(
+      platform: FakeAppRoutingPlatform(),
+      repository: MemoryAppRulesRepository(),
+      interfacesProvider: () => controller.interfaces,
+    );
+    await tester.pumpWidget(
+      NetPilotApp(controller: controller, appRoutingController: appController),
+    );
+    await controller.start();
+    await appController.start();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    platform.fail = true;
+    await tester.tap(find.byKey(const ValueKey('custom-routing-switch')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('could not be removed'), findsOneWidget);
   });
 
   testWidgets('home shows interfaces and add rule', (tester) async {
@@ -207,4 +311,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(appController.rules.first.enabled, isFalse);
   });
+}
+
+class _FailingRoutePlatform extends FakeNetworkPlatform {
+  bool fail = false;
+
+  @override
+  Future<ApplyRoutesResult> reconcileRoutes(List<DesiredRoute> desired) {
+    if (fail) throw StateError('Helper unavailable');
+    return super.reconcileRoutes(desired);
+  }
 }

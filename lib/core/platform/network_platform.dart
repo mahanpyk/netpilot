@@ -29,6 +29,25 @@ class HelperStatus {
   }
 }
 
+class LaunchAtLoginStatus {
+  const LaunchAtLoginStatus({
+    required this.enabled,
+    required this.status,
+    this.message,
+  });
+
+  final bool enabled;
+  final String status;
+  final String? message;
+
+  factory LaunchAtLoginStatus.fromMap(Map<Object?, Object?> map) =>
+      LaunchAtLoginStatus(
+        enabled: map['enabled'] as bool? ?? false,
+        status: map['status']?.toString() ?? 'unknown',
+        message: map['message']?.toString(),
+      );
+}
+
 class ApplyRoutesResult {
   const ApplyRoutesResult({
     required this.ok,
@@ -172,13 +191,19 @@ class HostMappingsResult {
 
 abstract class NetworkPlatform {
   bool get supportsHostMappings;
+  bool get supportsLaunchAtLogin;
   Future<HostMappingsResult> reconcileHostMappings(List<HostMapping> desired);
   Future<List<NetworkInterfaceInfo>> listInterfaces();
   Future<ResolveHostResult> resolveHost(String host, {String? interfaceId});
   Future<HelperStatus> getHelperStatus();
   Future<HelperStatus> installHelper();
   Future<ApplyRoutesResult> reconcileRoutes(List<DesiredRoute> desired);
+  Future<LaunchAtLoginStatus> getLaunchAtLoginStatus();
+  Future<LaunchAtLoginStatus> setLaunchAtLogin(bool enabled);
+  Future<void> setRoutingModeStatus(String mode);
+  Future<void> completeQuit();
   Stream<void> get interfacesChanged;
+  Stream<Map<String, Object?>> get lifecycleEvents;
 }
 
 class MethodChannelNetworkPlatform implements NetworkPlatform {
@@ -194,9 +219,17 @@ class MethodChannelNetworkPlatform implements NetworkPlatform {
 
   final MethodChannel _method;
   final EventChannel _events;
+  late final Stream<Map<String, Object?>> _eventStream = _events
+      .receiveBroadcastStream()
+      .where((event) => event is Map)
+      .map((event) => Map<String, Object?>.from(event as Map));
 
   @override
   bool get supportsHostMappings =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
+
+  @override
+  bool get supportsLaunchAtLogin =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
 
   @override
@@ -301,9 +334,44 @@ class MethodChannelNetworkPlatform implements NetworkPlatform {
   }
 
   @override
-  Stream<void> get interfacesChanged {
-    return _events.receiveBroadcastStream().map((_) {});
+  Future<LaunchAtLoginStatus> getLaunchAtLoginStatus() async {
+    final raw = await _method.invokeMethod<Map<Object?, Object?>>(
+      'getLaunchAtLoginStatus',
+    );
+    return raw == null
+        ? const LaunchAtLoginStatus(enabled: false, status: 'unknown')
+        : LaunchAtLoginStatus.fromMap(raw);
   }
+
+  @override
+  Future<LaunchAtLoginStatus> setLaunchAtLogin(bool enabled) async {
+    final raw = await _method.invokeMethod<Map<Object?, Object?>>(
+      'setLaunchAtLogin',
+      {'enabled': enabled},
+    );
+    return raw == null
+        ? const LaunchAtLoginStatus(enabled: false, status: 'unknown')
+        : LaunchAtLoginStatus.fromMap(raw);
+  }
+
+  @override
+  Future<void> setRoutingModeStatus(String mode) =>
+      _method.invokeMethod<void>('setRoutingModeStatus', {'mode': mode});
+
+  @override
+  Future<void> completeQuit() => _method.invokeMethod<void>('completeQuit');
+
+  @override
+  Stream<void> get interfacesChanged => _eventStream
+      .where((event) => event['type'] == 'interfacesChanged')
+      .map((_) {});
+
+  @override
+  Stream<Map<String, Object?>> get lifecycleEvents => _eventStream.where(
+    (event) =>
+        event['type'] == 'routingModeRequested' ||
+        event['type'] == 'quitRequested',
+  );
 }
 
 /// Fake platform for widget/unit tests and unsupported hosts.
@@ -351,9 +419,15 @@ class FakeNetworkPlatform implements NetworkPlatform {
   HelperStatus helperStatus;
   final List<DesiredRoute> managed = [];
   final List<HostMapping> managedHostMappings = [];
+  bool launchAtLoginEnabled = false;
+  String? lastMenuRoutingMode;
+  bool quitCompleted = false;
 
   @override
   bool get supportsHostMappings => true;
+
+  @override
+  bool get supportsLaunchAtLogin => true;
 
   @override
   Future<HostMappingsResult> reconcileHostMappings(
@@ -366,8 +440,12 @@ class FakeNetworkPlatform implements NetworkPlatform {
   }
 
   final _interfacesChanged = StreamController<void>.broadcast();
+  final _lifecycleEvents = StreamController<Map<String, Object?>>.broadcast();
 
   void notifyInterfacesChanged() => _interfacesChanged.add(null);
+  void requestRoutingMode(String mode) =>
+      _lifecycleEvents.add({'type': 'routingModeRequested', 'mode': mode});
+  void requestQuit() => _lifecycleEvents.add({'type': 'quitRequested'});
 
   @override
   Future<List<NetworkInterfaceInfo>> listInterfaces() async =>
@@ -423,5 +501,31 @@ class FakeNetworkPlatform implements NetworkPlatform {
   }
 
   @override
+  Future<LaunchAtLoginStatus> getLaunchAtLoginStatus() async =>
+      LaunchAtLoginStatus(
+        enabled: launchAtLoginEnabled,
+        status: launchAtLoginEnabled ? 'enabled' : 'notRegistered',
+      );
+
+  @override
+  Future<LaunchAtLoginStatus> setLaunchAtLogin(bool enabled) async {
+    launchAtLoginEnabled = enabled;
+    return getLaunchAtLoginStatus();
+  }
+
+  @override
+  Future<void> setRoutingModeStatus(String mode) async {
+    lastMenuRoutingMode = mode;
+  }
+
+  @override
+  Future<void> completeQuit() async {
+    quitCompleted = true;
+  }
+
+  @override
   Stream<void> get interfacesChanged => _interfacesChanged.stream;
+
+  @override
+  Stream<Map<String, Object?>> get lifecycleEvents => _lifecycleEvents.stream;
 }

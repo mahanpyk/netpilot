@@ -8,7 +8,64 @@ here. Consolidate routine fixes into milestones; use Git history for details.
 The original `AGENTS.md` says Windows is deferred, but the user's later
 explicit Windows parity request superseded that scope note for this branch.
 
-## Current state and next gate (2026-10-17)
+## Current state and next gate (2026-11-05)
+
+- **Stable-release decision:** The owner chose to defer a stable GitHub Release
+  until Windows has passed live testing. Do not create a stable tag from the
+  current source. The latest published release is `v1.0.1-test.4`; the next
+  test candidate is `v1.0.1-test.5` (app `1.0.1+4`) with macOS menu bar and
+  routing-mode work. The current
+  tag workflow always publishes a prerelease, and Windows CI embeds an
+  ephemeral test-signed WFP driver. Before a stable tag: complete
+  `windows/IntegrationTests/WFP_GATE.md` on Windows 11 and Windows 10, cover
+  installer upgrade/repair/rollback/uninstall, choose a Microsoft-signed driver
+  distribution path for ordinary Windows installations, add a stable branch to
+  the release workflow that rejects test-signed assets, finalize version and
+  changelog, run both platform gates, then commit on `develop`, merge into
+  `main`, tag the `main` commit, push, and verify published assets. Keep the
+  accepted macOS Rules-only/Apple Development signing limitation explicit in
+  release notes unless distribution signing changes.
+- macOS menu-bar lifecycle, Launch at login, and persisted System Default /
+  Custom Routing are implemented and tested in a locally signed Rules-only
+  build installed at `/Applications/NetPilot.app`. Closing the window leaves
+  the process running; full Quit exits it. The login switch registered and
+  unregistered the main app, then was left **off**. The mode was left **Custom**.
+  A saved rule for `185.24.138.10` used `en8` in Custom, fell back to the
+  default `en0` in System Default, and returned to `en8` after restoring
+  Custom. The helper was repaired from the final installed build and reports
+  enabled. Live menu-item selection itself was not accessible through the UI
+  automation surface; the native event path and controller have tests.
+- A user reported that the status icon was absent even after expanding Hidden
+  Bar on this Mac. A launched-app XCTest reproduced it: `NSApp.delegate` was
+  `AppDelegate`, but `statusItem` was nil. The old launch callback called
+  `super.applicationDidFinishLaunching`, although the current FlutterAppDelegate
+  does not implement this optional callback, causing an Objective-C
+  `NSInvalidArgumentException` before status-item setup. Setup now runs from
+  `awakeFromNib` and idempotently from the launch callback; the invalid `super`
+  call is removed. The status item loads the bundled NetPilot
+  `AppIcon.icns` at 18×18, uses a stable autosave name, explicitly sets visible,
+  and logs `[NetPilot] Menu bar item installed: visible=…, icon=…` or button
+  creation failure. The launched-app and item-configuration native tests pass.
+  A signed DMG run from its mounted volume showed the green icon in the actual
+  menu bar, confirmed by a user screenshot. The final no-exception build was
+  installed at `/Applications/NetPilot.app`, launched from that path, passed
+  strict code-signature verification, and the user confirmed its green menu bar
+  icon remained visible.
+- System Default attempts hosts and route cleanup independently and reports
+  either failure. A paused app proxy resumes automatically only when its
+  configuration had no unapplied edits; otherwise it remains pending for
+  explicit Apply & Restart. Corrupt mode preferences default to Custom; writes
+  replace the JSON atomically. Quit waits for in-flight mode changes with a
+  bounded native timeout.
+- `flutter analyze --no-pub`, all **72 Flutter tests**, **35 Xcode tests**,
+  signed Rules-only packaging, strict signature verification, and on-device
+  route switching pass. Build a local Rules-only DMG with
+  `NETPILOT_SIGNING_IDENTITY=<local-Apple-Development-identity> macos/scripts/package_routes_test.sh`.
+  The local delivered DMG is in `dist/`; it is Apple Development signed and
+  unnotarized. `flutter build macos --debug` still needs a provisioning profile
+  for Runner / Transparent Proxy entitlements; the Rules-only packaging script
+  removes the unavailable extension. The released `v1.0.1-test.4` assets have
+  not changed; commit/tag/CI publication remain separate work.
 
 - Release `v1.0.1-test.4` fixes macOS DNS/save hangs and adds optional managed LAN
   hostname mappings. DNS uses the selected interface asynchronously with a
@@ -159,7 +216,7 @@ NetPilot helps developers who are connected to **Wi‑Fi (internet)** and **comp
 | Route reconcile via privileged helper | TLS MITM / HTTPS path inspection |
 | Local destination and application rule persistence | Cloud sync / accounts |
 | Per-app TCP/UDP (including QUIC) transparent relay | ICMP, raw IP, IPv6, TLS inspection, MSIX/UWP |
-| Simple desktop UI | Tray-only / menubar-only app |
+| Desktop UI and macOS menu bar controls | Menu-bar-only UI |
 
 ## Architecture overview
 
@@ -245,8 +302,11 @@ netpilot_desktop/
 │       ├── network_interfaces/
 │       │   └── presentation/interface_card.dart
 │       └── routing_rules/
-│           ├── data/rules_repository.dart
+│           ├── data/
+│           │   ├── rules_repository.dart
+│           │   └── routing_mode_repository.dart
 │           ├── domain/netpilot_controller.dart
+│           ├── domain/routing_mode.dart
 │           └── presentation/
 │               ├── rule_editor_sheet.dart
 │               └── rule_tile.dart
@@ -257,6 +317,7 @@ netpilot_desktop/
 │   ├── routing_rule_test.dart
 │   ├── netpilot_controller_test.dart
 │   ├── host_mappings_test.dart
+│   ├── routing_mode_test.dart
 │   ├── rule_editor_sheet_test.dart
 │   └── widget_test.dart
 └── macos/
@@ -372,6 +433,12 @@ Runtime flow/byte/error metrics are returned separately by the provider.
 - App support dir / `netpilot_app_rules.json` stores version 2 application
   routing state (`masterEnabled` plus platform identities and rules). Version 1
   macOS objects and a legacy bare rule list still load without manual migration.
+- App support dir / `netpilot_routing_mode.json` stores schema version 1 and
+  `routingMode` (`custom` or `systemDefault`). Missing or unknown values default
+  to `custom` so old installs retain their routing behavior. Malformed JSON
+  also defaults to `custom`; saves write a flushed temporary file in the same
+  directory and rename it into place. This setting does not modify each rule's
+  `enabled` state.
 - The pending configuration hash is SHA-256 over canonical provider-relevant
   fields. The applied hash is mirrored in
   `NETransparentProxyManager.protocolConfiguration.providerConfiguration`.
@@ -397,10 +464,18 @@ Runtime flow/byte/error metrics are returned separately by the provider.
 | `installHelper` | — | status map (+ `ok` when possible) |
 | `reconcileRoutes` | `{ desired: List<RouteSpec> }` | `{ ok, added, removed, errors, routeChecks, connectionResetDestinations, restartedProcesses }` |
 | `windowAction` | `{ action: close, minimize, or zoom }` | — |
+| `getLaunchAtLoginStatus` | — | `{ enabled, status, message? }` from macOS `SMAppService.mainApp` |
+| `setLaunchAtLogin` | `{ enabled: bool }` | updated login-item status map |
+| `setRoutingModeStatus` | `{ mode: 'custom' or 'systemDefault' }` | updates macOS menu checkmark |
+| `completeQuit` | — | ends the app after a menu Quit request |
 
 ### EventChannel: `com.netpilot.netpilotDesktop/networkEvents`
 
-Emits `{ type: 'interfacesChanged' }` on SCDynamicStore changes.
+Emits `{ type: 'interfacesChanged' }` on SCDynamicStore changes. On macOS it
+also emits `{ type: 'routingModeRequested', mode: 'custom'|'systemDefault' }`
+when the menu changes global mode and `{ type: 'quitRequested' }` when the
+menu requests full Quit. Dart acknowledges Quit with `completeQuit`; quitting
+does not silently change the saved routing mode.
 
 ### MethodChannel: `com.netpilot.netpilotDesktop/appRouting`
 
@@ -506,7 +581,12 @@ Native helper changes require a full app rebuild. Helper status includes a live
 XPC ping, so a registered but unreachable daemon is reported as `unreachable`
 instead of `enabled`. Settings exposes Install / Repair, which unregisters a
 stale enabled service, registers the helper from the current app bundle, and
-reapplies rules after a successful ping.
+reapplies rules after a successful ping. Repair waits for the asynchronous
+`SMAppService.unregister(completionHandler:)` callback before re-registering;
+the synchronous unregister returns before the daemon stops. A single bounded
+retry handles a transient registration failure just after unregister. The
+first local upgrade hit `Operation not permitted` after synchronous removal;
+the final build repaired the helper on the first click.
 
 ## Signing & entitlements
 
@@ -526,6 +606,16 @@ reapplies rules after a successful ping.
   working Close / Minimize / Zoom controls through `windowAction`. The controls
   use a compact Liquid Glass-inspired capsule with adaptive light/dark material,
   gloss, depth, and hover/press feedback.
+- A macOS `NSStatusItem` is installed while the app runs. Closing the Flutter
+  window keeps its controller alive and switches to accessory activation policy
+  (no Dock icon); left-clicking the status icon reopens it and restores regular
+  activation,
+  and its menu offers Open, Custom Routing / System Default, and Quit.
+  Its icon uses the bundled `AppIcon.icns` with a SF Symbol fallback. The
+  autosave name preserves its macOS menu bar identity; third-party menu bar
+  managers such as Hidden Bar can still conceal it.
+  `SMAppService.mainApp` registers/unregisters login launch without adding
+  a second privileged helper or changing helper entitlements.
 - Windows x64 development uses Test Mode plus a local test code-signing
   certificate for `NetPilotWfp.sys` and its CAT. The Flutter Runner stays
   unelevated; WiX Setup/Maintenance is the only UAC entry point. Public packages
@@ -536,7 +626,8 @@ reapplies rules after a successful ping.
 
 - Home: 1180×760 initial desktop window (980×640 minimum) with Rules / Apps / Networks / Settings tabs;
   each tab owns its scrollable content. Rules includes a collapsible Diagnostics
-  panel; Settings contains the light/dark theme switch. Dark mode is default
+  panel; Settings contains the light/dark theme switch, macOS global routing
+  mode, and Launch at login switch. Dark mode is default
   with green primary actions on neutral graphite surfaces.
 - Add/Edit sheet: destination, label, interface, resolve preview, save & apply;
   saving a URL applies the parent first and then displays dependency scan progress
@@ -554,6 +645,13 @@ reapplies rules after a successful ping.
 - Apps shows extension/proxy state, master switch, signed `.app` picker,
   physical interface and block/fallback editors, helper count, per-rule flow and
   byte metrics, errors, Pending Changes, and manual **Apply & Restart Proxy**.
+- The global routing mode is loaded before first reconciliation and shared by
+  Settings and the macOS status menu. System Default also pauses an active
+  per-app proxy without persisting a change to its master switch; restoring
+  Custom resumes a previously active proxy only when there are no pending app
+  edits. Pending edits require explicit Apply & Restart Proxy. Menu Quit waits
+  for current mode reconciliation and preserves the saved mode and the helper's
+  existing route state.
 - On Windows, Apps selects `.exe`, displays Authenticode/publisher or a visible
   unsigned path-only warning, and asks the user to review discovered helper
   candidates. Settings reports Windows Service, WFP Driver, Test Mode, reboot,
@@ -731,6 +829,24 @@ CI build must not be reported as successful split-tunneling integration.
 | IPv6 | Not started |
 
 ## Changelog
+
+- **2026-11-05 — macOS menu bar icon startup fix.** Reproduced a missing
+  status item in a launched-app test and found an invalid `super` call to an
+  unimplemented FlutterAppDelegate launch method. Removed the call and installed
+  the item during nib awakening, with an idempotent launch fallback. Use the
+  bundled NetPilot icon, a stable menu bar identity, and `[NetPilot]`
+  creation/visibility logs. Native regression tests pass, and a user screenshot
+  confirmed the icon from a signed mounted DMG and final installed build.
+
+- **2026-11-05 — macOS menu bar and routing mode.** Added a
+  persistent System Default / Custom Routing choice, menu-bar window controls,
+  and a login-item setting. System Default removes owned routes and hosts
+  mappings without changing individual rule toggles; Custom reapplies them.
+  Hosts and route cleanup are independent, pending app edits remain pending
+  across pause/resume, and helper Repair waits for unregister completion and
+  retries a transient registration failure. Flutter analysis, 72 Flutter
+  tests, 33 Xcode tests, signed Rules-only packaging, and live route switching
+  on a locally installed build pass. Published test assets are unchanged.
 
 - **2026-10-17 — Published test release v1.0.1-test.4.** Commit `935d5c9`
   and the annotated tag were pushed to GitHub. Release run `39022163155`

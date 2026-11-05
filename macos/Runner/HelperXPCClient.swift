@@ -62,10 +62,17 @@ final class HelperXPCClient {
     if #available(macOS 13.0, *) {
       let service = SMAppService.daemon(plistName: NetPilotXPCConstants.launchdPlistName)
       do {
-        if service.status == .enabled {
-          try service.unregister()
+        let repairing = service.status == .enabled
+        if repairing {
+          try unregisterAndWait(service)
         }
-        try service.register()
+        try Self.registerWithOneRetry(
+          { try service.register() },
+          shouldRetry: {
+            repairing &&
+              (service.status == .notRegistered || service.status == .notFound)
+          }
+        )
         var map = status()
         map["ok"] = (map["enabled"] as? Bool) ?? false
         return map
@@ -77,6 +84,49 @@ final class HelperXPCClient {
       }
     }
     return status()
+  }
+
+  private func unregisterAndWait(_ service: SMAppService) throws {
+    // The synchronous API returns before launchd has stopped the old daemon.
+    // Apple's completion callback marks the point at which re-registration is safe.
+    try Self.waitForUnregister { completion in
+      service.unregister(completionHandler: completion)
+    }
+  }
+
+  static func waitForUnregister(
+    _ unregister: (@escaping (Error?) -> Void) -> Void,
+    timeout: DispatchTimeInterval = .seconds(12)
+  ) throws {
+    let completed = DispatchSemaphore(value: 0)
+    var unregisterError: Error?
+    unregister { error in
+      unregisterError = error
+      completed.signal()
+    }
+    guard completed.wait(timeout: .now() + timeout) == .success else {
+      throw NSError(
+        domain: "NetPilotHelperRegistration",
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for the old helper to stop. Try Repair again."]
+      )
+    }
+    if let unregisterError { throw unregisterError }
+  }
+
+  static func registerWithOneRetry(
+    _ register: () throws -> Void,
+    shouldRetry: () -> Bool,
+    delay: () -> Void = { Thread.sleep(forTimeInterval: 0.5) }
+  ) throws {
+    do {
+      try register()
+    } catch {
+      guard shouldRetry() else { throw error }
+      NSLog("[NetPilot] Helper re-registration was not yet ready: %@. Retrying once.", error.localizedDescription)
+      delay()
+      try register()
+    }
   }
 
   func reconcile(desired: [[String: Any]]) -> [String: Any] {

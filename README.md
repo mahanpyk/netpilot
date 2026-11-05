@@ -18,6 +18,8 @@
 | LAN hostname mappings (macOS) | Resolve through the selected LAN interface and manage a fixed private hostname-to-IPv4 mapping through the signed helper; manual hosts entries are preserved. |
 | Route diagnostics | Show resolution, route application, conflicts, and helper errors in the app and terminal (`[NetPilot]`). Refresh DNS and reapply existing rules without rescanning the page. |
 | Browser reconnect | After route changes, refresh affected Safari/Chromium networking services on macOS so open tabs can establish new connections over the updated route. Windows has a corresponding implementation awaiting live testing. |
+| Mac menu bar controls (macOS test build) | Keep NetPilot running when its window closes. Left-click the menu icon to reopen it; right-click for Custom Routing / System Default and Quit. The mode switch suspends or restores all custom rules without changing their individual switches. |
+| Launch at login (macOS test build) | Start NetPilot automatically after macOS login when enabled in Settings. macOS may ask you to approve the login item in System Settings. |
 | Per-app routing (development) | Source code for macOS Transparent Proxy and Windows WFP-based routing of selected apps over a physical interface. This is **not available in the macOS test DMG** and has not passed the required signed/live integration gates. |
 
 NetPilot currently routes **IPv4** traffic. It does not inspect TLS, route by URL path, or provide a VPN. If two sites use the same destination IP, a system-wide destination route cannot send those sites through different interfaces. The dependency scanner uses static analysis; it does not execute JavaScript or scan pages requiring a login.
@@ -104,8 +106,8 @@ making user-visible changes, then move those entries under the next tag.
 Maintainers must set `MACOS_CERT_P12_BASE64` and `MACOS_CERT_P12_PASSWORD` as GitHub Actions repository secrets before tagging. The P12 must contain the Apple Development identity used to sign the macOS app and helper. Keep certificates, private keys, and passwords out of Git. Once the intended changes are on `main`, create and push an annotated tag:
 
 ```bash
-git tag -a v1.0.2-test.1 -m "NetPilot test build"
-git push origin v1.0.2-test.1
+git tag -a v1.0.1-test.5 -m "NetPilot v1.0.1-test.5"
+git push origin v1.0.1-test.5
 ```
 
 The current workflow produces **test prereleases**. macOS packages are not Developer ID notarized, and Windows packages use a per-run test driver certificate.
