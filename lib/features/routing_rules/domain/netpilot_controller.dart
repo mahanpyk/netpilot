@@ -10,32 +10,44 @@ import '../../../core/utils/dependency_scanner.dart';
 import '../../../core/utils/destination_parser.dart';
 import '../../../core/utils/route_reconciler.dart';
 import '../data/rules_repository.dart';
+import '../data/routing_mode_repository.dart';
+import 'routing_mode.dart';
 
 class NetPilotController extends ChangeNotifier {
   NetPilotController({
     required this._platform,
     required this._rulesRepository,
+    RoutingModeRepository? routingModeRepository,
     DestinationParser? parser,
     RouteReconciler? reconciler,
     DependencyScanner? dependencyScanner,
     this._resolutionTimeout = const Duration(seconds: 10),
     Uuid? uuid,
-  }) : _parser = parser ?? const DestinationParser(),
+  }) : _routingModeRepository =
+           routingModeRepository ?? MemoryRoutingModeRepository(),
+       _parser = parser ?? const DestinationParser(),
        _reconciler = reconciler ?? const RouteReconciler(),
        _dependencyScanner = dependencyScanner ?? HttpDependencyScanner(),
        _uuid = uuid ?? const Uuid();
 
   final NetworkPlatform _platform;
   final RulesRepository _rulesRepository;
+  final RoutingModeRepository _routingModeRepository;
   final DestinationParser _parser;
   final RouteReconciler _reconciler;
   final DependencyScanner _dependencyScanner;
   final Uuid _uuid;
   final Duration _resolutionTimeout;
   final Map<String, Object> _ruleSaveOperations = {};
+  Future<void> _applyChain = Future<void>.value();
 
   List<NetworkInterfaceInfo> _interfaces = [];
   List<RoutingRule> _rules = [];
+  RoutingMode _routingMode = RoutingMode.custom;
+  LaunchAtLoginStatus _launchAtLoginStatus = const LaunchAtLoginStatus(
+    enabled: false,
+    status: 'unknown',
+  );
   HelperStatus _helperStatus = const HelperStatus(
     installed: false,
     enabled: false,
@@ -49,6 +61,8 @@ class NetPilotController extends ChangeNotifier {
 
   List<NetworkInterfaceInfo> get interfaces => List.unmodifiable(_interfaces);
   List<RoutingRule> get rules => List.unmodifiable(_rules);
+  RoutingMode get routingMode => _routingMode;
+  LaunchAtLoginStatus get launchAtLoginStatus => _launchAtLoginStatus;
   HelperStatus get helperStatus => _helperStatus;
   bool get loading => _loading;
   bool get busy => _busy;
@@ -64,8 +78,12 @@ class NetPilotController extends ChangeNotifier {
     notifyListeners();
     try {
       _rules = await _rulesRepository.load();
+      _routingMode = await _routingModeRepository.load();
       await refreshInterfaces();
       await refreshHelperStatus();
+      if (_platform.supportsLaunchAtLogin) {
+        await refreshLaunchAtLoginStatus();
+      }
       _networkSub ??= _platform.interfacesChanged.listen((_) async {
         await refreshInterfaces();
         await applyAll();
@@ -94,6 +112,51 @@ class NetPilotController extends ChangeNotifier {
   Future<void> refreshHelperStatus() async {
     _helperStatus = await _platform.getHelperStatus();
     notifyListeners();
+  }
+
+  Future<void> refreshLaunchAtLoginStatus() async {
+    if (!_platform.supportsLaunchAtLogin) return;
+    final previous = _launchAtLoginStatus;
+    try {
+      _launchAtLoginStatus = await _platform.getLaunchAtLoginStatus();
+    } catch (error) {
+      _launchAtLoginStatus = LaunchAtLoginStatus(
+        enabled: previous.enabled,
+        status: 'error',
+        message: error.toString(),
+      );
+      debugPrint('[NetPilot] Launch at login status failed: $error');
+    }
+    notifyListeners();
+  }
+
+  Future<void> setLaunchAtLogin(bool enabled) async {
+    if (!_platform.supportsLaunchAtLogin) return;
+    final previous = _launchAtLoginStatus;
+    try {
+      _launchAtLoginStatus = await _platform.setLaunchAtLogin(enabled);
+      debugPrint(
+        '[NetPilot] Launch at login: ${_launchAtLoginStatus.status} '
+        'enabled=${_launchAtLoginStatus.enabled}',
+      );
+    } catch (error) {
+      _launchAtLoginStatus = LaunchAtLoginStatus(
+        enabled: previous.enabled,
+        status: 'error',
+        message: error.toString(),
+      );
+      debugPrint('[NetPilot] Launch at login change failed: $error');
+    }
+    notifyListeners();
+  }
+
+  Future<void> setRoutingMode(RoutingMode mode) async {
+    if (_routingMode == mode) return;
+    await _routingModeRepository.save(mode);
+    _routingMode = mode;
+    debugPrint('[NetPilot] Routing mode: ${mode.name}');
+    notifyListeners();
+    await applyAll();
   }
 
   Future<void> installHelper() async {
@@ -412,10 +475,75 @@ class NetPilotController extends ChangeNotifier {
     await applyAll();
   }
 
-  Future<void> applyAll() async {
+  Future<void> applyAll() {
+    final operation = _applyChain.then((_) => _applyAllInternal());
+    _applyChain = operation.catchError((Object _, StackTrace _) {});
+    return operation;
+  }
+
+  Future<void> _applyAllInternal() async {
     _busy = true;
     notifyListeners();
     try {
+      if (_routingMode == RoutingMode.systemDefault) {
+        final errors = <String>[];
+        var removed = 0;
+        try {
+          await _reconcileManagedHostMappings();
+        } catch (error) {
+          errors.add('Host mapping cleanup: $error');
+        }
+        try {
+          final result = await _platform.reconcileRoutes(const []);
+          removed = result.removed;
+          if (!result.ok) {
+            errors.addAll(
+              result.errors.isEmpty
+                  ? const ['Route cleanup failed.']
+                  : result.errors.map((error) => 'Route cleanup: $error'),
+            );
+          }
+        } catch (error) {
+          errors.add('Route cleanup: $error');
+        }
+        final errorMessage = errors.isEmpty ? null : errors.join('; ');
+        _rules = _rules
+            .map(
+              (rule) => rule.copyWith(
+                status: errorMessage == null
+                    ? RuleStatus.pending
+                    : RuleStatus.error,
+                lastError: errorMessage,
+                clearLastError: errorMessage == null,
+                subRules: rule.subRules
+                    .map(
+                      (child) => child.copyWith(
+                        status: errorMessage == null
+                            ? RuleStatus.pending
+                            : RuleStatus.error,
+                        lastError: errorMessage,
+                        clearLastError: errorMessage == null,
+                      ),
+                    )
+                    .toList(),
+              ),
+            )
+            .toList();
+        await _rulesRepository.save(_rules);
+        _routeDiagnostics = [
+          errors.isEmpty
+              ? 'System Default: custom routes and hostname mappings disabled.'
+              : 'System Default requested; cleanup is incomplete.',
+          'Removed routes: $removed',
+          for (final error in errors) 'Error: $error',
+        ];
+        _bannerError = errorMessage;
+        debugPrint(
+          '[NetPilot] System Default reconcile: removed=$removed '
+          'ok=${errors.isEmpty} errors=$errors',
+        );
+        return;
+      }
       await refreshHelperStatus();
       final hostMappings = _desiredHostMappings();
       await _reconcileManagedHostMappings();
@@ -676,6 +804,7 @@ class NetPilotController extends ChangeNotifier {
   }
 
   Map<String, String> _desiredHostMappings({String? excludingRuleId}) {
+    if (_routingMode == RoutingMode.systemDefault) return {};
     final mappings = <String, String>{};
     void add(String host, String ipv4) {
       final previous = mappings[host];

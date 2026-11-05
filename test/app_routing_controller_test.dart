@@ -62,6 +62,103 @@ void main() {
     expect(repository.state.rules.single.status, AppRoutingRuleStatus.active);
   });
 
+  test('global routing pause stops and restores proxy without changing saved master preference', () async {
+    final platform = FakeAppRoutingPlatform();
+    final repository = MemoryAppRulesRepository();
+    final controller = AppRoutingController(
+      platform: platform,
+      repository: repository,
+      interfacesProvider: () => interfaces,
+    );
+    await controller.start();
+    await controller.upsertRule(
+      app: app,
+      interfaceId: 'en8',
+      failurePolicy: AppRoutingFailurePolicy.block,
+    );
+    await controller.setMasterEnabled(true);
+    await controller.applyAndRestart();
+    expect(platform.status.proxyRunning, isTrue);
+
+    await controller.setGlobalRoutingEnabled(false);
+    expect(platform.status.proxyRunning, isFalse);
+    expect(controller.masterEnabled, isTrue);
+    expect(repository.state.masterEnabled, isTrue);
+
+    await controller.setGlobalRoutingEnabled(true);
+    expect(platform.status.proxyRunning, isTrue);
+    expect(controller.masterEnabled, isTrue);
+  });
+
+  test('global resume does not apply pending app-rule edits', () async {
+    final platform = FakeAppRoutingPlatform();
+    final controller = AppRoutingController(
+      platform: platform,
+      repository: MemoryAppRulesRepository(),
+      interfacesProvider: () => interfaces,
+    );
+    await controller.start();
+    await controller.upsertRule(
+      app: app,
+      interfaceId: 'en8',
+      failurePolicy: AppRoutingFailurePolicy.block,
+    );
+    await controller.setMasterEnabled(true);
+    await controller.applyAndRestart();
+    await controller.upsertRule(
+      app: app,
+      interfaceId: 'en0',
+      failurePolicy: AppRoutingFailurePolicy.block,
+      id: controller.rules.single.id,
+    );
+    expect(controller.hasPendingChanges, isTrue);
+
+    await controller.setGlobalRoutingEnabled(false);
+    await controller.setGlobalRoutingEnabled(true);
+
+    expect(platform.status.proxyRunning, isFalse);
+    expect(platform.applyCount, 2);
+    expect(controller.hasPendingChanges, isTrue);
+  });
+
+  test('global pause sends disable while proxy is reconnecting', () async {
+    final platform = FakeAppRoutingPlatform(
+      status: const AppRoutingStatus(
+        extensionStatus: 'installed',
+        proxyStatus: 'reconnecting',
+      ),
+    );
+    final controller = AppRoutingController(
+      platform: platform,
+      repository: MemoryAppRulesRepository(),
+      interfacesProvider: () => interfaces,
+    );
+    await controller.start();
+    await controller.setGlobalRoutingEnabled(false);
+    expect(platform.applyCount, 1);
+    expect(platform.status.proxyStatus, 'stopped');
+  });
+
+  test('global pause skips an unavailable unsigned proxy', () async {
+    final platform = FakeAppRoutingPlatform(
+      status: const AppRoutingStatus(
+        extensionStatus: 'signingRequired',
+        proxyStatus: 'unconfigured',
+      ),
+    );
+    final controller = AppRoutingController(
+      platform: platform,
+      repository: MemoryAppRulesRepository(),
+      interfacesProvider: () => interfaces,
+    );
+    await controller.start();
+
+    await controller.setGlobalRoutingEnabled(false);
+
+    expect(controller.globalRoutingEnabled, isFalse);
+    expect(platform.applyCount, 0);
+  });
+
   test(
     'blocks signing identifier overlap across different interfaces',
     () async {

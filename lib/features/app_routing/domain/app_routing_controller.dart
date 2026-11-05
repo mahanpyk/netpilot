@@ -31,6 +31,10 @@ class AppRoutingController extends ChangeNotifier {
 
   List<AppRoutingRule> _rules = [];
   bool _masterEnabled = false;
+  bool _globalRoutingEnabled = true;
+  bool _resumeAfterGlobalPause = false;
+  String? _configurationHashBeforeGlobalPause;
+  bool _hadPendingChangesBeforeGlobalPause = false;
   bool _loading = true;
   bool _busy = false;
   String? _error;
@@ -43,6 +47,7 @@ class AppRoutingController extends ChangeNotifier {
 
   List<AppRoutingRule> get rules => List.unmodifiable(_rules);
   bool get masterEnabled => _masterEnabled;
+  bool get globalRoutingEnabled => _globalRoutingEnabled;
   bool get loading => _loading;
   bool get busy => _busy;
   String? get error => _error;
@@ -50,7 +55,10 @@ class AppRoutingController extends ChangeNotifier {
   AppRoutingStatus get status => _status;
   AppRoutingConfiguration get configuration =>
       AppRoutingConfiguration(masterEnabled: _masterEnabled, rules: _rules);
-  bool get hasPendingChanges => configuration.hash != _status.appliedHash;
+  bool get hasPendingChanges => _globalRoutingEnabled
+      ? configuration.hash != _status.appliedHash
+      : _hadPendingChangesBeforeGlobalPause ||
+            configuration.hash != _configurationHashBeforeGlobalPause;
 
   List<NetworkInterfaceInfo> get physicalInterfaces => _interfacesProvider()
       .where(
@@ -184,6 +192,77 @@ class AppRoutingController extends ChangeNotifier {
     await _persist();
   }
 
+  /// Temporarily stops the proxy while preserving the user's saved app rules.
+  Future<void> setGlobalRoutingEnabled(bool enabled) async {
+    if (_globalRoutingEnabled == enabled) return;
+    if (!enabled) {
+      _hadPendingChangesBeforeGlobalPause = hasPendingChanges;
+      _configurationHashBeforeGlobalPause = configuration.hash;
+      _resumeAfterGlobalPause =
+          _masterEnabled &&
+          (_status.proxyStatus == 'running' ||
+              _status.proxyStatus == 'reconnecting' ||
+              _status.appliedHash == configuration.hash);
+      _globalRoutingEnabled = false;
+      if (_status.routingEngineReady ||
+          _status.proxyRunning ||
+          _status.proxyStatus == 'reconnecting') {
+        try {
+          _status = await _platform.applyAndRestart(
+            masterEnabled: false,
+            rules: _rules,
+            configurationHash: AppRoutingConfiguration(
+              masterEnabled: false,
+              rules: _rules,
+            ).hash,
+          );
+          if (_status.proxyStatus == 'running' ||
+              _status.proxyStatus == 'reconnecting') {
+            throw StateError('App routing proxy is still active after pause.');
+          }
+          debugPrint(
+            '[NetPilot App Routing] proxy paused by System Default mode',
+          );
+        } catch (error, stackTrace) {
+          _globalRoutingEnabled = true;
+          _setError(error, stackTrace);
+          rethrow;
+        }
+      }
+    } else {
+      _globalRoutingEnabled = true;
+      final canResumeAppliedConfiguration =
+          _resumeAfterGlobalPause &&
+          !_hadPendingChangesBeforeGlobalPause &&
+          configuration.hash == _configurationHashBeforeGlobalPause;
+      if (canResumeAppliedConfiguration) {
+        try {
+          _status = await _platform.applyAndRestart(
+            masterEnabled: _masterEnabled,
+            rules: _rules,
+            configurationHash: configuration.hash,
+          );
+          debugPrint(
+            '[NetPilot App Routing] proxy restored by Custom Routing mode',
+          );
+        } catch (error, stackTrace) {
+          _globalRoutingEnabled = false;
+          _setError(error, stackTrace);
+          rethrow;
+        }
+      } else if (_resumeAfterGlobalPause) {
+        _error = 'App rules have pending changes. Use Apply & Restart Proxy to resume them.';
+        debugPrint(
+          '[NetPilot App Routing] resume awaits explicit Apply & Restart',
+        );
+      }
+      _resumeAfterGlobalPause = false;
+      _configurationHashBeforeGlobalPause = null;
+      _hadPendingChangesBeforeGlobalPause = false;
+    }
+    notifyListeners();
+  }
+
   Future<void> installExtension() async {
     await _runBusy(() async {
       _status = await _platform.installExtension();
@@ -198,6 +277,11 @@ class AppRoutingController extends ChangeNotifier {
   }
 
   Future<void> applyAndRestart() async {
+    if (!_globalRoutingEnabled) {
+      _error = 'Switch to Custom Routing before applying app rules.';
+      notifyListeners();
+      return;
+    }
     final validationError = validate();
     if (validationError != null) {
       _error = validationError;
