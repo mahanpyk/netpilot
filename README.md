@@ -97,7 +97,7 @@ The main Flutter code lives in [`lib/`](lib/), with Flutter tests in [`test/`](t
 
 ## Releases
 
-Pushing an annotated version tag triggers the [release workflow](.github/workflows/release.yml). It runs Flutter checks and builds both platform packages, then creates a GitHub prerelease only if both jobs succeed. Release notes are generated from commits since the previous version tag; rerunning the tag workflow updates its assets and notes.
+Pushing an annotated version tag triggers the [release workflow](.github/workflows/release.yml). It runs Flutter checks and builds both platform packages, then creates a GitHub prerelease only if both jobs succeed. Release notes include that version's curated [changelog](CHANGELOG.md) and commits since the previous version tag; rerunning the tag workflow updates its assets and notes.
 
 The curated [changelog](CHANGELOG.md) records the significant changes and
 release status for each test version. Update its **Unreleased** section when
