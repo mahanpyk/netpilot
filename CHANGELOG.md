@@ -7,6 +7,29 @@ identified separately from features available in downloadable packages.
 
 ## [Unreleased]
 
+## [v1.0.1-test.6] - 2026-11-07
+
+### Added
+
+- Export destination/site rules from Settings → Site transfer to a JSON file
+  and import them on another NetPilot installation. Choose local networks during
+  import; preserve names,
+  dependencies, and LAN IPv4 pins while refreshing DNS. Existing rules remain,
+  duplicates are skipped, and imported rules start paused unless enabled in
+  the import dialog.
+
+### Release scope
+
+- macOS remains Rules-only, Apple Development signed and unnotarized.
+- Windows packages retain the test-signed WFP driver and require Test Mode.
+- Backup files cover destination rules; app rules and global settings are
+  excluded. LAN hostname mappings require macOS.
+
+### Release status
+
+- Prepared for tagged CI publication; both platform build gates must pass.
+- Live two-device transfer and Windows runtime acceptance remain pending.
+
 ## [v1.0.1-test.5] - 2026-11-05
 
 ### Added

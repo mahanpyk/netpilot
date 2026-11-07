@@ -15,6 +15,7 @@ import '../routing_rules/domain/netpilot_controller.dart';
 import '../routing_rules/domain/routing_mode.dart';
 import '../routing_rules/presentation/rule_editor_sheet.dart';
 import '../routing_rules/presentation/rule_tile.dart';
+import '../routing_rules/presentation/rules_transfer_actions.dart';
 
 enum _Tab { rules, apps, networks, settings }
 
@@ -108,6 +109,7 @@ class _HomePageState extends State<HomePage> {
                           interfaces: c.interfaces,
                         ),
                         _Tab.settings => _SettingsView(
+                          controller: c,
                           helperStatus: c.helperStatus,
                           appRoutingController: widget.appRoutingController,
                           busy: c.busy,
@@ -365,6 +367,7 @@ class _NetworksView extends StatelessWidget {
 
 class _SettingsView extends StatelessWidget {
   const _SettingsView({
+    required this.controller,
     required this.helperStatus,
     required this.appRoutingController,
     required this.busy,
@@ -378,6 +381,7 @@ class _SettingsView extends StatelessWidget {
     required this.onLaunchAtLoginChanged,
   });
 
+  final NetPilotController controller;
   final HelperStatus helperStatus;
   final AppRoutingController appRoutingController;
   final bool busy;
@@ -501,6 +505,17 @@ class _SettingsView extends StatelessWidget {
                   appRoutingController.status.rebootRequired ? 'yes' : 'no',
                 ),
               ],
+              const Divider(height: 32),
+              Text(
+                'Site transfer',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Export your sites to a file or import them from another device.',
+              ),
+              const SizedBox(height: 12),
+              RulesTransferActions(controller: controller),
             ],
           ),
         ),

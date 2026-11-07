@@ -46,8 +46,8 @@
 		A1B2C3D40200000000000004 /* NetPilotXPCProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40100000000000004 /* NetPilotXPCProtocol.swift */; };
 		A1B2C3D40200000000000005 /* RouteSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40100000000000005 /* RouteSpec.swift */; };
 		A1B2C3D40200000000000006 /* RouteManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40100000000000006 /* RouteManager.swift */; };
-		A1B2C3D40200000000000009 /* ManagedHosts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40100000000000009 /* ManagedHosts.swift */; };
 		A1B2C3D40200000000000007 /* RouteManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40100000000000007 /* RouteManagerTests.swift */; };
+		A1B2C3D40200000000000009 /* ManagedHosts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40100000000000009 /* ManagedHosts.swift */; };
 		A1B2C3D4020000000000000A /* ManagedHostsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4010000000000000A /* ManagedHostsTests.swift */; };
 		ABABF4CBD32C6091A089362F /* AppRoutingConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAF648E0BE8A4ECDFC5BE375 /* AppRoutingConfig.swift */; };
 		B5FFD6701536D7CB6387E748 /* InterfaceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 018B45ED161B831B984FCA3D /* InterfaceResolver.swift */; };
@@ -141,8 +141,8 @@
 		A1B2C3D40100000000000004 /* NetPilotXPCProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetPilotXPCProtocol.swift; sourceTree = "<group>"; };
 		A1B2C3D40100000000000005 /* RouteSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteSpec.swift; sourceTree = "<group>"; };
 		A1B2C3D40100000000000006 /* RouteManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteManager.swift; sourceTree = "<group>"; };
-		A1B2C3D40100000000000009 /* ManagedHosts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedHosts.swift; sourceTree = "<group>"; };
 		A1B2C3D40100000000000007 /* RouteManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteManagerTests.swift; sourceTree = "<group>"; };
+		A1B2C3D40100000000000009 /* ManagedHosts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedHosts.swift; sourceTree = "<group>"; };
 		A1B2C3D4010000000000000A /* ManagedHostsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedHostsTests.swift; sourceTree = "<group>"; };
 		BAF648E0BE8A4ECDFC5BE375 /* AppRoutingConfig.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppRoutingConfig.swift; sourceTree = "<group>"; };
 		C13DC4DF4C77ED4538AA21CD /* NetPilotTransparentProxy.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = NetPilotTransparentProxy.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -386,6 +386,7 @@
 				3399D490228B24CF009A79C7 /* ShellScript */,
 				NP30EMBED /* Embed NetPilot Helper */,
 				4C5DCCCC0C2A5F0AF022FB08 /* Embed System Extensions */,
+				5E633CAAA2FE8202FF707D40 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -535,6 +536,23 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+		5E633CAAA2FE8202FF707D40 /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
 		F381DFCAB0DE319D8389586F /* [CP] Check Pods Manifest.lock */ = {
