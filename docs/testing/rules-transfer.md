@@ -68,3 +68,20 @@ coverage is 67/67 lines (100%), file adapter 10/10 (100%), transfer UI 86/91
 (94.5%), destination controller 476/558 (85.3%). Tagged CI must pass both
 platforms and verify the signed packages before publication is considered
 complete. Real-device acceptance remains separate from the release build gate.
+
+
+## Published prerelease
+
+`v1.0.1-test.6` was published by successful CI run `42338038278` from tag commit
+`2b600efebfe52e4a167403a7c6c8e1d533b8bf1a` (feature commit `d6c4aa2`). macOS,
+Windows, and publish jobs all finished successfully. Downloaded the CI artifacts
+and the published SHA256SUMS manifest; verified all six release asset digests
+against those local files and all five package hashes against the manifest.
+The DMG app passed `codesign --verify --deep --strict`, and its Info.plist
+reports version `1.0.1`, build `5`. The Windows portable ZIP passed CRC checks
+for all 23 entries. Release metadata confirms `isPrerelease=true`,
+`isDraft=false`. No installed app/helper was replaced and no live two-device
+transfer or Windows runtime acceptance is claimed.
+
+Release: https://github.com/mahanpyk/netpilot/releases/tag/v1.0.1-test.6
+CI: https://github.com/mahanpyk/netpilot/actions/runs/42338038278
