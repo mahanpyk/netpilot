@@ -430,6 +430,80 @@ class NetPilotController extends ChangeNotifier {
     await applyAll();
   }
 
+  Future<int> importRules(
+    List<RoutingRule> imported, {
+    required Map<String, String> interfaceMapping,
+    bool activate = false,
+  }) async {
+    for (final rule in imported) {
+      final target = interfaceMapping[rule.interfaceId];
+      if (!_interfaces.any((i) => i.id == target && i.isActive)) {
+        throw ArgumentError(
+          'Choose an active network for ${rule.interfaceId}.',
+        );
+      }
+      if (rule.hostIpv4 != null && !supportsHostMappings) {
+        throw ArgumentError(
+          'This backup contains hostname mappings that require macOS.',
+        );
+      }
+    }
+    final additions = <RoutingRule>[];
+    for (final rule in imported) {
+      final target = interfaceMapping[rule.interfaceId]!;
+      bool duplicate(RoutingRule other) =>
+          other.normalizedDestination == rule.normalizedDestination &&
+          other.interfaceId == target;
+      if (_rules.any(duplicate) || additions.any(duplicate)) continue;
+      final ips = rule.hostIpv4 != null
+          ? [rule.hostIpv4!]
+          : rule.kind == DestinationKind.ipv4
+          ? [rule.normalizedDestination]
+          : rule.kind == DestinationKind.cidr
+          ? <String>[]
+          : (await _resolveHost(
+              rule.normalizedDestination,
+              interfaceId: target,
+            )).ips;
+      final children = <RoutingSubRule>[];
+      for (final child in rule.subRules) {
+        children.add(
+          await _refreshSubRule(
+            child.copyWith(id: _uuid.v4()),
+            interfaceId: target,
+          ),
+        );
+      }
+      additions.add(
+        rule.copyWith(
+          id: _uuid.v4(),
+          interfaceId: target,
+          enabled: activate && rule.enabled,
+          resolvedIps: ips,
+          status: RuleStatus.pending,
+          clearLastError: true,
+          subRules: children,
+          updatedAt: DateTime.now(),
+        ),
+      );
+    }
+    // Recheck after DNS awaits: an editor may have added a matching rule.
+    additions.removeWhere(
+      (rule) => _rules.any(
+        (other) =>
+            other.normalizedDestination == rule.normalizedDestination &&
+            other.interfaceId == rule.interfaceId,
+      ),
+    );
+    if (additions.isEmpty) return 0;
+    final next = [..._rules, ...additions];
+    await _rulesRepository.save(next);
+    _rules = next;
+    notifyListeners();
+    await applyAll();
+    return additions.length;
+  }
+
   Future<void> refreshResolutions() async {
     final next = <RoutingRule>[];
     for (final rule in _rules) {

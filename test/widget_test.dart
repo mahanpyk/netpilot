@@ -185,6 +185,26 @@ void main() {
     );
     expect(find.text('NetPilot'), findsOneWidget);
     expect(find.text('Add rule'), findsOneWidget);
+    expect(find.text('Import'), findsNothing);
+    expect(find.text('Export'), findsNothing);
+
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Site transfer'));
+    expect(find.text('Import'), findsOneWidget);
+    expect(find.text('Export'), findsOneWidget);
+    expect(
+      tester
+          .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'Import'))
+          .onPressed,
+      isNotNull,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'Export'))
+          .onPressed,
+      isNull,
+    );
 
     await tester.tap(find.text('Networks'));
     await tester.pumpAndSettle();

@@ -95,6 +95,22 @@ URL scans run when a URL rule is saved. They have limits on redirects, script do
 
 The main Flutter code lives in [`lib/`](lib/), with Flutter tests in [`test/`](test/). Platform-specific code and integration instructions live in [`macos/`](macos/) and [`windows/`](windows/). [HANDOFF.md](HANDOFF.md) is the technical map for contributors.
 
+### Transfer sites to another device (v1.0.1-test.6+)
+
+In **Settings → Site transfer**, click **Export** and save
+`netpilot-rules.json`. Copy that file onto the other device, open
+**Settings → Site transfer → Import**, then choose a local network for each
+source network. Import keeps existing rules and skips destinations already
+assigned to the same network. Imported rules start paused; select **Enable
+imported rules** to restore the backup's enabled rules immediately, or enable
+individual rules afterward.
+
+Names, discovered dependencies, their switches, and explicit LAN IPv4 mappings
+are included. DNS is resolved again on the destination device. LAN hostname
+mappings currently require macOS; backups containing them cannot be imported on
+Windows. App routing rules and global settings are not included. Both devices
+need a build that supports this feature.
+
 ## Releases
 
 Pushing an annotated version tag triggers the [release workflow](.github/workflows/release.yml). It runs Flutter checks and builds both platform packages, then creates a GitHub prerelease only if both jobs succeed. Release notes include that version's curated [changelog](CHANGELOG.md) and commits since the previous version tag; rerunning the tag workflow updates its assets and notes.
@@ -106,8 +122,8 @@ making user-visible changes, then move those entries under the next tag.
 Maintainers must set `MACOS_CERT_P12_BASE64` and `MACOS_CERT_P12_PASSWORD` as GitHub Actions repository secrets before tagging. The P12 must contain the Apple Development identity used to sign the macOS app and helper. Keep certificates, private keys, and passwords out of Git. Once the intended changes are on `main`, create and push an annotated tag:
 
 ```bash
-git tag -a v1.0.1-test.5 -m "NetPilot v1.0.1-test.5"
-git push origin v1.0.1-test.5
+git tag -a v1.0.1-test.6 -m "NetPilot v1.0.1-test.6"
+git push origin v1.0.1-test.6
 ```
 
 The current workflow produces **test prereleases**. macOS packages are not Developer ID notarized, and Windows packages use a per-run test driver certificate.

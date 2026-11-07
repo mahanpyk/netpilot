@@ -1,7 +1,7 @@
 name: netpilot_desktop
 description: Split routing for dual-network macOS and Windows desktops.
 publish_to: 'none'
-version: 1.0.1+4
+version: 1.0.1+5
 
 environment:
   sdk: ^3.13.3
@@ -16,6 +16,9 @@ dependencies:
   collection: ^1.19.1
   html: ^0.15.7
   crypto: ^3.0.7
+  file_selector_platform_interface: ^2.7.0
+  file_selector_macos: ^0.9.5+1
+  file_selector_windows: ^0.9.3+6
 
 dev_dependencies:
   flutter_test:
