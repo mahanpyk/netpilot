@@ -10,8 +10,8 @@ explicit Windows parity request superseded that scope note for this branch.
 
 ## Current state and next gate (2026-11-07)
 
-- Destination-rule Import / Export is prepared for `v1.0.1-test.6`
-  (app `1.0.1+5`); tagged CI publication is pending. Settings → Site transfer
+- Destination-rule Import / Export is published in `v1.0.1-test.6`
+  (app `1.0.1+5`). Settings → Site transfer
   has native JSON open/save dialogs, an import preview with explicit
   mapping from each source network to a local active interface, duplicate
   skipping, and an opt-in to enable imported rules (paused by default).
@@ -20,9 +20,13 @@ explicit Windows parity request superseded that scope note for this branch.
   dialogs have not been exercised. See Persistence for the portable contract.
 - **Stable-release decision:** The owner chose to defer a stable GitHub Release
   until Windows has passed live testing. Do not create a stable tag from the
-  current source. The latest published prerelease is `v1.0.1-test.5`
-  (app `1.0.1+4`), built by successful CI run `42038065720` from tag commit
-  `ec6d127`. It includes macOS menu bar and routing-mode work. The current
+  current source. The latest published prerelease is
+  [`v1.0.1-test.6`](https://github.com/mahanpyk/netpilot/releases/tag/v1.0.1-test.6)
+  (app `1.0.1+5`), built by successful CI run `42338038278` from tag commit
+  `2b600ef`. It adds Settings site-rule transfer to the macOS menu bar and
+  routing-mode work. All six assets and package checksums were verified;
+  the downloaded DMG app passed strict code-signature verification and
+  reports the expected app version. The current
   tag workflow always publishes a prerelease, and Windows CI embeds an
   ephemeral test-signed WFP driver. Before a stable tag: complete
   `windows/IntegrationTests/WFP_GATE.md` on Windows 11 and Windows 10, cover
@@ -876,6 +880,14 @@ CI build must not be reported as successful split-tunneling integration.
 | IPv6 | Not started |
 
 ## Changelog
+
+- **2026-11-07 — Published v1.0.1-test.6.** Source `d6c4aa2` was committed
+  on develop and merged to main as tagged commit `2b600ef`. CI run
+  `42338038278` passed macOS, Windows, and publish jobs. Verified all release
+  assets against the downloaded CI artifacts and SHA256SUMS; the DMG's app
+  passed strict signature verification and reports `1.0.1+5`. No installed
+  app/helper was replaced. Live two-device and Windows runtime tests remain
+  separate acceptance gates.
 
 - **2026-11-07 — Prepare v1.0.1-test.6.** Version `1.0.1+5` includes portable
   site-rule Import / Export under Settings. Prepared the curated changelog

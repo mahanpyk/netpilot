@@ -27,7 +27,11 @@ identified separately from features available in downloadable packages.
 
 ### Release status
 
-- Prepared for tagged CI publication; both platform build gates must pass.
+- Published macOS and Windows test packages after both CI build gates passed
+  in [run 42338038278](https://github.com/mahanpyk/netpilot/actions/runs/42338038278).
+  All six release assets and the five package SHA-256 checksums were verified;
+  the downloaded macOS app passed strict signature verification and reports
+  version `1.0.1+5`.
 - Live two-device transfer and Windows runtime acceptance remain pending.
 
 ## [v1.0.1-test.5] - 2026-11-05
